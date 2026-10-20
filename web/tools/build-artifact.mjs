@@ -1,5 +1,5 @@
-// Builds the single-player page (OFFLINE=1) and writes client/dist-offline/artifact.html:
-// the same page without <!doctype>/<html>/<head>/<body>, for hosts such as claude.ai that wrap
+// Builds the single-player pages (OFFLINE=1) and writes client/dist-offline/artifact.html: the open
+// world (world.html) without <!doctype>/<html>/<head>/<body>, for hosts such as claude.ai that wrap
 // the published page in their own document skeleton. Usage: node tools/build-artifact.mjs
 import { execFileSync } from 'node:child_process';
 import { readdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
@@ -21,14 +21,14 @@ for (const entry of readdirSync(join(client, 'dist-offline', 'assets'), { recurs
 }
 console.log(`wrapped ${models} models as .glb.json`);
 
-const html = readFileSync(join(client, 'dist-offline', 'index.html'), 'utf8');
+const html = readFileSync(join(client, 'dist-offline', 'world.html'), 'utf8');
 const head = html.match(/<head>([\s\S]*?)<\/head>/)?.[1] ?? '';
-const body = html.match(/<body>([\s\S]*?)<\/body>/)?.[1] ?? '';
+const body = html.match(/<body[^>]*>([\s\S]*?)<\/body>/)?.[1] ?? '';
 const keep = (re) => [...head.matchAll(re)].map((m) => m[0]);
 const page = [
   ...keep(/<title>[\s\S]*?<\/title>/g), // the host reads the title from the top of the file
   ...keep(/<meta name="theme-color"[^>]*>/g),
-  '<meta name="description" content="KayKit Arena single-player: a top-down action RPG that runs entirely in your browser." />',
+  '<meta name="description" content="Hearthwild: an open-world survival RPG that runs entirely in your browser." />',
   ...keep(/<link [^>]*>/g),
   ...keep(/<script [\s\S]*?<\/script>/g),
   body.trim(),

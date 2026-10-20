@@ -57,7 +57,18 @@ const DUNGEON_FILE = (n) => (['chest', 'chest_gold', 'wall_doorway'].includes(n)
 const NATURE = ['decoration/nature/trees_A_large', 'decoration/nature/trees_A_medium', 'decoration/nature/trees_B_large',
   'decoration/nature/tree_single_A', 'decoration/nature/tree_single_B', 'decoration/nature/rock_single_A',
   'decoration/nature/rock_single_B', 'decoration/nature/rock_single_C', 'decoration/nature/hills_A_trees',
-  'decoration/nature/mountain_A_grass_trees', 'decoration/nature/mountain_B_grass_trees'];
+  'decoration/nature/mountain_A_grass_trees', 'decoration/nature/mountain_B_grass_trees',
+  // open world: harvested trees, more rocks, village buildings, placeable structures and props
+  'decoration/nature/tree_single_A_cut', 'decoration/nature/tree_single_B_cut', 'decoration/nature/rock_single_D',
+  'decoration/nature/rock_single_E', 'decoration/nature/trees_B_medium',
+  'buildings/blue/building_home_A_blue', 'buildings/blue/building_home_B_blue', 'buildings/blue/building_blacksmith_blue',
+  'buildings/blue/building_well_blue', 'buildings/blue/building_market_blue', 'buildings/blue/building_tavern_blue',
+  'buildings/blue/building_windmill_blue', 'buildings/blue/building_tower_A_blue',
+  'buildings/neutral/building_destroyed', 'buildings/neutral/fence_wood_straight', 'buildings/neutral/wall_straight',
+  'decoration/props/tent', 'decoration/props/resource_lumber', 'decoration/props/resource_stone', 'decoration/props/crate_A_big',
+  'decoration/props/barrel', 'decoration/props/flag_blue', 'decoration/props/weaponrack', 'decoration/props/sack',
+  'decoration/props/wheelbarrow'];
+const NATURE_TEXTURE_DIRS = [...new Set(NATURE.map((n) => n.split('/').slice(0, -1).join('/')))];
 
 function git(args, cwd) {
   return execFileSync('git', args, { cwd, stdio: ['ignore', 'pipe', 'inherit'] }).toString();
@@ -146,11 +157,11 @@ mkdirSync(join(out, 'licenses'), { recursive: true });
 
 // Nature (Medieval Hexagon pack)
 {
-  const h = fetchPack('hexagon', ['LICENSE.txt', 'Assets/gltf/decoration/nature/hexagons_medieval.png',
+  const h = fetchPack('hexagon', ['LICENSE.txt', ...NATURE_TEXTURE_DIRS.map((d) => `Assets/gltf/${d}/hexagons_medieval.png`),
     ...NATURE.flatMap((n) => [`Assets/gltf/${n}.gltf`, `Assets/gltf/${n}.bin`])]);
   for (const n of NATURE) {
     const doc = await optimize(await io.read(h(`Assets/gltf/${n}.gltf`)));
-    const dst = join(out, 'nature', `${n.split('/').pop()}.glb`);
+    const dst = join(out, n.startsWith('decoration/nature') ? 'nature' : 'village', `${n.split('/').pop()}.glb`);
     record('hexagon', `Assets/gltf/${n}.gltf`, dst, await writeGlb(doc, dst));
   }
   copyFileSync(h('LICENSE.txt'), join(out, 'licenses', 'KayKit-Medieval-Hexagon-Pack-1.0.LICENSE.txt'));

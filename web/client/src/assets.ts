@@ -27,11 +27,18 @@ async function loadModel(loader: GLTFLoader, key: string): Promise<GLTF> {
 
 /** Loads every model the game needs. Reports progress as a 0..1 fraction. */
 export async function loadAll(onProgress: (fraction: number, label: string) => void): Promise<void> {
-  const keys = [
-    ...CHARACTER_MODELS.map((k) => `characters/${k}`),
-    ...WEAPON_MODELS.map((k) => `weapons/${k}`),
-    ...new Set([...MAP.props.map((p) => p.model), ...EXTRA_PROPS]),
-  ];
+  await loadModels(
+    [
+      ...CHARACTER_MODELS.map((k) => `characters/${k}`),
+      ...WEAPON_MODELS.map((k) => `weapons/${k}`),
+      ...new Set([...MAP.props.map((p) => p.model), ...EXTRA_PROPS]),
+    ],
+    onProgress,
+  );
+}
+
+/** Loads the given models (keys like 'nature/tree_single_A'); progress is a 0..1 fraction. */
+export async function loadModels(keys: string[], onProgress: (fraction: number, label: string) => void): Promise<void> {
   // GLTFLoader decodes embedded textures with fetch(blob:) + createImageBitmap when available.
   // Hosts whose content-security policy blocks fetching blob: URLs (the claude.ai page sandbox)
   // still allow <img src="blob:...">, so the single-player build takes that path instead.

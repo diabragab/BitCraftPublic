@@ -1,5 +1,5 @@
 {
-  "generated": "2026-10-20T21:49:04.646Z",
+  "generated": "2026-10-20T22:50:37.200Z",
   "packs": {
     "adventurers": {
       "repo": "KayKit-Character-Pack-Adventures-1.0",
@@ -304,6 +304,156 @@
       "source": "Assets/gltf/decoration/nature/mountain_B_grass_trees.gltf",
       "output": "nature/mountain_B_grass_trees.glb",
       "bytes": 39372
+    },
+    {
+      "pack": "hexagon",
+      "source": "Assets/gltf/decoration/nature/tree_single_A_cut.gltf",
+      "output": "nature/tree_single_A_cut.glb",
+      "bytes": 18064
+    },
+    {
+      "pack": "hexagon",
+      "source": "Assets/gltf/decoration/nature/tree_single_B_cut.gltf",
+      "output": "nature/tree_single_B_cut.glb",
+      "bytes": 18580
+    },
+    {
+      "pack": "hexagon",
+      "source": "Assets/gltf/decoration/nature/rock_single_D.gltf",
+      "output": "nature/rock_single_D.glb",
+      "bytes": 18252
+    },
+    {
+      "pack": "hexagon",
+      "source": "Assets/gltf/decoration/nature/rock_single_E.gltf",
+      "output": "nature/rock_single_E.glb",
+      "bytes": 20208
+    },
+    {
+      "pack": "hexagon",
+      "source": "Assets/gltf/decoration/nature/trees_B_medium.gltf",
+      "output": "nature/trees_B_medium.glb",
+      "bytes": 43028
+    },
+    {
+      "pack": "hexagon",
+      "source": "Assets/gltf/buildings/blue/building_home_A_blue.gltf",
+      "output": "village/building_home_A_blue.glb",
+      "bytes": 54252
+    },
+    {
+      "pack": "hexagon",
+      "source": "Assets/gltf/buildings/blue/building_home_B_blue.gltf",
+      "output": "village/building_home_B_blue.glb",
+      "bytes": 71844
+    },
+    {
+      "pack": "hexagon",
+      "source": "Assets/gltf/buildings/blue/building_blacksmith_blue.gltf",
+      "output": "village/building_blacksmith_blue.glb",
+      "bytes": 99712
+    },
+    {
+      "pack": "hexagon",
+      "source": "Assets/gltf/buildings/blue/building_well_blue.gltf",
+      "output": "village/building_well_blue.glb",
+      "bytes": 45456
+    },
+    {
+      "pack": "hexagon",
+      "source": "Assets/gltf/buildings/blue/building_market_blue.gltf",
+      "output": "village/building_market_blue.glb",
+      "bytes": 119524
+    },
+    {
+      "pack": "hexagon",
+      "source": "Assets/gltf/buildings/blue/building_tavern_blue.gltf",
+      "output": "village/building_tavern_blue.glb",
+      "bytes": 130900
+    },
+    {
+      "pack": "hexagon",
+      "source": "Assets/gltf/buildings/blue/building_windmill_blue.gltf",
+      "output": "village/building_windmill_blue.glb",
+      "bytes": 113668
+    },
+    {
+      "pack": "hexagon",
+      "source": "Assets/gltf/buildings/blue/building_tower_A_blue.gltf",
+      "output": "village/building_tower_A_blue.glb",
+      "bytes": 93508
+    },
+    {
+      "pack": "hexagon",
+      "source": "Assets/gltf/buildings/neutral/building_destroyed.gltf",
+      "output": "village/building_destroyed.glb",
+      "bytes": 54792
+    },
+    {
+      "pack": "hexagon",
+      "source": "Assets/gltf/buildings/neutral/fence_wood_straight.gltf",
+      "output": "village/fence_wood_straight.glb",
+      "bytes": 27244
+    },
+    {
+      "pack": "hexagon",
+      "source": "Assets/gltf/buildings/neutral/wall_straight.gltf",
+      "output": "village/wall_straight.glb",
+      "bytes": 37828
+    },
+    {
+      "pack": "hexagon",
+      "source": "Assets/gltf/decoration/props/tent.gltf",
+      "output": "village/tent.glb",
+      "bytes": 21344
+    },
+    {
+      "pack": "hexagon",
+      "source": "Assets/gltf/decoration/props/resource_lumber.gltf",
+      "output": "village/resource_lumber.glb",
+      "bytes": 25280
+    },
+    {
+      "pack": "hexagon",
+      "source": "Assets/gltf/decoration/props/resource_stone.gltf",
+      "output": "village/resource_stone.glb",
+      "bytes": 25084
+    },
+    {
+      "pack": "hexagon",
+      "source": "Assets/gltf/decoration/props/crate_A_big.gltf",
+      "output": "village/crate_A_big.glb",
+      "bytes": 21992
+    },
+    {
+      "pack": "hexagon",
+      "source": "Assets/gltf/decoration/props/barrel.gltf",
+      "output": "village/barrel.glb",
+      "bytes": 27620
+    },
+    {
+      "pack": "hexagon",
+      "source": "Assets/gltf/decoration/props/flag_blue.gltf",
+      "output": "village/flag_blue.glb",
+      "bytes": 19000
+    },
+    {
+      "pack": "hexagon",
+      "source": "Assets/gltf/decoration/props/weaponrack.gltf",
+      "output": "village/weaponrack.glb",
+      "bytes": 19292
+    },
+    {
+      "pack": "hexagon",
+      "source": "Assets/gltf/decoration/props/sack.gltf",
+      "output": "village/sack.glb",
+      "bytes": 19576
+    },
+    {
+      "pack": "hexagon",
+      "source": "Assets/gltf/decoration/props/wheelbarrow.gltf",
+      "output": "village/wheelbarrow.glb",
+      "bytes": 30136
     }
   ]
 }

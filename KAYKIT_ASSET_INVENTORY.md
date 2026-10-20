@@ -27,7 +27,7 @@ Every used repository contains `LICENSE.txt` stating **Creative Commons Zero (CC
 3. Props (`.gltf.glb`, `.gltf + .bin + .png`): same optimisation, converted to single `.glb` files.
 4. Writes `web/client/public/assets/manifest.json` (source path → output, sizes).
 
-Result: **≈30 MB of source files → 6.0 MB** on disk, and roughly half that over the wire (the gateway serves gzip; e.g. `knight.glb` 521 KB → 204 KB).
+Result: **≈30 MB of source files → 6.8 MB** (72 files) on disk, and roughly half that over the wire (the gateway serves gzip; e.g. `knight.glb` 521 KB → 204 KB).
 
 ## Selected files
 
@@ -40,6 +40,9 @@ Result: **≈30 MB of source files → 6.0 MB** on disk, and roughly half that o
 | Medieval props | Dungeon Remastered | `barrel_large`, `barrel_small_stack`, `box_large`, `box_stacked`, `crates_stacked`, `chest_gold`, `table_medium_decorated_A`, `keg_decorated`, `trunk_large_A`, `sword_shield` | |
 | Pickups / resources | Dungeon Remastered | `bottle_A_green` (health potion), `coin_stack_small` (gold) | |
 | Forest, rocks, terrain decoration | Medieval Hexagon | `tree_single_A/B`, `trees_A_large`, `trees_A_medium`, `trees_B_large`, `rock_single_A/B/C`, `hills_A_trees`, `mountain_A/B_grass_trees` | Authored for 2 m hex tiles; scaled 2.5–9× in the map. |
+| Open-world village and buildings | Medieval Hexagon | `village/building_home_A_blue`, `building_home_B_blue`, `building_blacksmith_blue`, `building_well_blue`, `building_market_blue`, `building_tavern_blue`, `building_windmill_blue`, `building_tower_A_blue`, `building_destroyed` (ruins) | Scaled ×4.5–6.5; the blacksmith doubles as the player-built forge, home A as the player house. |
+| Open-world placeables and props | Medieval Hexagon | `village/fence_wood_straight`, `wall_straight`, `tent`, `resource_lumber` (campfire base), `resource_stone`, `crate_A_big`, `barrel`, `flag_blue`, `weaponrack`, `sack`, `wheelbarrow` | Scaled ×3–6. |
+| Open-world harvesting | Medieval Hexagon | `nature/tree_single_A_cut`, `tree_single_B_cut` (felled trees), `rock_single_D`, `rock_single_E` (also tinted as iron veins), `trees_B_medium` | |
 | UI | — | none | KayKit has no free UI pack in these repos; the HUD is HTML/CSS and class portraits are rendered at runtime from the character models. |
 
 ## Compatibility checks

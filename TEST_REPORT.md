@@ -75,7 +75,24 @@ After the PR-review fixes the suite was run twice in a row: 17/17 both times. Ou
 17/17 steps passed.
 ```
 
-### Single-player page — `npm run test:offline`
+### Hearthwild open world — `npm run test:world`
+
+Serves the published page form (`artifact.html` wrapped in a bare document) under the strict policy and plays the core loop:
+```
+✔ page loads under the strict policy and shows the start screen
+✔ start a new hero and enter the island — 10 ruins, 49 skeletons
+✔ walk to a tree and chop it (+3 wood, woodcutting XP) — wood=3, woodcutting xp=24
+✔ chop a second tree — wood=6
+✔ craft two planks from the crafting panel — planks=2, wood left=2
+✔ build a wooden fence through the build panel — construction xp=5
+✔ progress survives a reload (continue) — wood=2, structures=1
+✔ no errors or CSP violations on desktop
+✔ phone: joystick moves the hero, the ✋ button gathers — moved 6.7 m, gathering started
+9/9 steps passed.
+```
+Not covered by automation yet: combat at ruins, chests, night spawns, iron/forge recipes and houses (the rules for these are in `sim.ts` and reachable in play). Measured at the village: 99 draw calls.
+
+### Single-player arena page — `npm run test:offline`
 
 Serves `artifact.html` wrapped in a bare document under a strict policy (`script-src 'self'` without eval, `connect-src 'self'`, `img-src 'self' data: blob:`) and records CSP violations:
 ```

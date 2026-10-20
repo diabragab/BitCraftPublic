@@ -18,7 +18,8 @@
     "test:e2e": "npm run build && node tests/e2e.mjs",
     "tunnel": "bash scripts/tunnel.sh",
     "build:offline": "node tools/build-artifact.mjs",
-    "test:offline": "npm run build:offline && node tests/e2e-offline.mjs"
+    "test:offline": "npm run build:offline && node tests/e2e-offline.mjs",
+    "test:world": "npm run build:offline && node tests/e2e-world.mjs"
   },
   "devDependencies": {
     "@gltf-transform/core": "4.1.1",

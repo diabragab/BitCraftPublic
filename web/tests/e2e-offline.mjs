@@ -1,6 +1,5 @@
-// Browser test for the single-player page (npm run build:offline). It serves artifact.html
-// the way a page host such as claude.ai does: wrapped in a bare document skeleton, under a
-// strict content-security policy (no eval, no fetch of blob: URLs). Usage: node tests/e2e-offline.mjs
+// Browser test for the single-player arena page (npm run build:offline), served under a strict
+// content-security policy like claude.ai's (no eval, no fetch of blob: URLs). Usage: node tests/e2e-offline.mjs
 import { createServer } from 'node:http';
 import { existsSync, mkdirSync, readFileSync, statSync } from 'node:fs';
 import { dirname, extname, join, normalize } from 'node:path';
@@ -15,9 +14,8 @@ const CHROME = process.env.CHROMIUM_PATH ?? ['/opt/pw-browsers/chromium-1194/chr
 const CSP = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; font-src 'self' data:";
 const TYPES = { '.js': 'text/javascript', '.css': 'text/css', '.glb': 'model/gltf-binary', '.svg': 'image/svg+xml', '.json': 'application/json', '.txt': 'text/plain' };
 
-const page = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<style>:root{color-scheme:light;padding-top:env(safe-area-inset-top);padding-bottom:env(safe-area-inset-bottom)}body{margin:0;font:14px system-ui}img{max-width:100%}[hidden]{display:none!important}</style>
-</head><body>${readFileSync(join(root, 'artifact.html'), 'utf8')}</body></html>`;
+// The arena page of the single-player build (artifact.html is the open world; see e2e-world.mjs).
+const page = readFileSync(join(root, 'index.html'), 'utf8');
 const server = createServer((req, res) => {
   const path = new URL(req.url, 'http://x').pathname;
   res.setHeader('content-security-policy', CSP);

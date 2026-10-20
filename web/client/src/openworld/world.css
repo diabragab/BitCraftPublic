@@ -1,0 +1,66 @@
+/* Open-world additions on top of ../style.css (same tokens). */
+.center { text-align: center; }
+.continue { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 14px;
+  border: 1px solid var(--line); border-radius: 12px; background: rgba(242, 193, 78, 0.08); }
+.continue > div { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.continue small { font-size: 12px; }
+.new-hero { display: flex; flex-direction: column; gap: 12px; }
+
+.list { display: flex; flex-direction: column; gap: 8px; }
+.entry { display: grid; grid-template-columns: 40px 1fr auto; gap: 10px; align-items: center; padding: 10px; border: 1px solid var(--line);
+  border-radius: 12px; background: rgba(255, 255, 255, 0.03); }
+.entry .ico { font-size: 26px; text-align: center; }
+.entry .body { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.entry .body b { font-size: 15px; }
+.entry .body small { color: var(--muted); font-size: 12px; line-height: 1.35; }
+.entry .reqs { display: flex; flex-wrap: wrap; gap: 6px; font-size: 12px; }
+.req { padding: 2px 7px; border-radius: 999px; background: rgba(255, 255, 255, 0.07); font-variant-numeric: tabular-nums; }
+.req.ok { color: var(--green); } .req.no { color: var(--red); }
+.entry button { min-height: 38px; padding: 8px 14px; }
+.entry.locked { opacity: 0.7; }
+
+.skill { display: grid; grid-template-columns: 32px 1fr auto; gap: 10px; align-items: center; }
+.skill .ico { font-size: 22px; text-align: center; }
+.skill .bar { height: 10px; margin-top: 4px; }
+.skill .bar > div { background: linear-gradient(90deg, #d9a43a, #f5cd62); }
+.skill .lvl { font-weight: 800; font-size: 18px; font-variant-numeric: tabular-nums; }
+
+.slot { position: relative; cursor: default; }
+.slot b { position: absolute; right: 4px; bottom: 2px; font-size: 12px; font-variant-numeric: tabular-nums; }
+.slot.selected { outline: 2px solid var(--gold); }
+
+#action-prompt { position: absolute; left: 50%; bottom: max(90px, calc(env(safe-area-inset-bottom) + 90px)); transform: translateX(-50%);
+  background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 8px 14px; font-size: 14px; text-align: center;
+  min-width: 200px; display: flex; flex-direction: column; gap: 6px; }
+#action-prompt .bar.gather { height: 6px; }
+#action-prompt .bar.gather > div { width: 0; background: var(--gold); transition: none; }
+
+#build-bar { position: absolute; left: 50%; bottom: max(24px, calc(env(safe-area-inset-bottom) + 24px)); transform: translateX(-50%);
+  display: flex; gap: 8px; align-items: center; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 8px 10px;
+  pointer-events: auto; flex-wrap: wrap; justify-content: center; max-width: calc(100vw - 32px); }
+#build-bar span { font-size: 13px; padding: 0 6px; }
+
+.map-panel { align-items: center; }
+#world-map { width: min(512px, 80vw, 62vh); aspect-ratio: 1; border-radius: 12px; border: 1px solid var(--line); image-rendering: pixelated; }
+
+button.danger { color: var(--red); }
+button.danger-fill { background: linear-gradient(180deg, #ef6a52, #c23b30); color: #fff; }
+.confirm { border: 1px solid var(--line); border-radius: 12px; padding: 10px; display: flex; flex-direction: column; gap: 8px; }
+.confirm p { margin: 0; font-size: 14px; }
+
+.dmg.gain { color: #ffe08a; font-size: 15px; }
+
+/* three touch buttons: potion, action, attack */
+.ow-touch { width: 200px; height: 170px; }
+.ow-touch #btn-attack { right: 0; bottom: 0; }
+.ow-touch #btn-action { right: 96px; bottom: 60px; width: 72px; height: 72px; font-size: 30px; }
+.ow-touch #btn-potion { right: 100px; bottom: -6px; width: 58px; height: 58px; }
+@media (pointer: coarse) {
+  #action-prompt { bottom: 200px; }
+}
+@media (max-width: 600px) {
+  /* the open world has more HUD buttons than the arena: keep the minimap below their row */
+  #minimap { top: calc(max(8px, env(safe-area-inset-top)) + 112px); }
+  .entry { grid-template-columns: 32px 1fr; }
+  .entry button { grid-column: 1 / -1; }
+}

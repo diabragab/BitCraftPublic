@@ -74,9 +74,25 @@ Controls: **WASD/arrows** move, **click/Space** attack (mouse aims), **Q** potio
 
 Documentation: [PROJECT_AUDIT.md](./PROJECT_AUDIT.md) · [IMPLEMENTATION_PLAN.md](./IMPLEMENTATION_PLAN.md) · [ARCHITECTURE.md](./ARCHITECTURE.md) · [TEST_REPORT.md](./TEST_REPORT.md) · [KAYKIT_ASSET_INVENTORY.md](./KAYKIT_ASSET_INVENTORY.md) · [ASSET_CREDITS.md](./ASSET_CREDITS.md)
 
+### Hearthwild: open-world RPG (single-player, `web/client/world.html`)
+
+A BitCraft-style sandbox with original rules, names and CC0 art. It plays in the browser, with no server needed:
+
+- **World:** a procedural island 768 × 768 m (forest, grassland, beaches, rocky highlands, snow) streamed in 64 m chunks, plus a starting village and 10 skeleton ruins with loot chests.
+- **Gathering:** chop trees and mine rocks and iron. Nodes deplete and regrow; stumps stay behind.
+- **Crafting:** planks, ingots, tools, a sword and potions, made at a workbench or forge.
+- **Building:** campfire, tent, workbench, forge, house, fences and walls. Campfires, tents and houses become your respawn point.
+- **Skills:** woodcutting, mining, combat, crafting and construction, from 1 to 50, with speed and damage bonuses and unlocks.
+- **Danger:** a day/night cycle with night-time skeleton wanderers. Ruins get more dangerous the farther they are from the village.
+- **Saving:** progress is kept in the browser (`localStorage`).
+
+Controls: WASD to move, click or Space to attack, **E** to gather or open, Q for a potion, I/C/B/K/M for the inventory, crafting, build, skills and map panels. On phones: joystick, ⚔, ✋ and 🧪.
+
+Code is in `web/client/src/openworld/`: `terrain.ts` (world generation), `sim.ts` (rules), `render.ts` (chunks, instancing, day/night), `main.ts` (UI). Run it with `npm run dev`, then open `/world.html`. Test it with `npm run test:world`.
+
 ### Single-player page (no server)
 
-`npm run build:offline` in `web/` builds a version where the arena rules run in the browser (`client/src/offline/sim.ts`, a port of the module's reducers and `world_tick`). The result in `web/client/dist-offline/` is a static page that needs no server; `artifact.html` is the same page for hosts that wrap pages in their own document (it is published as a claude.ai page). There is no login and no multiplayer; progress is kept in the browser. Test it with `npm run test:offline`.
+`npm run build:offline` in `web/` builds both games with no server: the arena with its rules ported to the browser (`client/src/offline/sim.ts`), and Hearthwild. The result in `web/client/dist-offline/` is static. `artifact.html` is the Hearthwild page in the form needed by hosts that wrap pages in their own document; it is published as a claude.ai page. There is no login and no multiplayer; progress is kept in the browser. Test it with `npm run test:offline`.
 
 ### Share a public test link from your computer
 

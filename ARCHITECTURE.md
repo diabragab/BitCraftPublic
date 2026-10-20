@@ -83,6 +83,19 @@ Clients **cannot** set position, health, gold, kills or cooldowns: those columns
 - **Animations:** `attack_seq` / `hit_seq` counters on rows trigger one-shot clips, so no event table is needed for them; `combat_event` rows (trimmed to 5 s) drive damage numbers and the kill feed.
 - **Connection status & reconnection:** status pill in the HUD; exponential backoff 1 s → 15 s; on reconnect the scene is rebuilt from the client cache. A token from a different server instance is discarded automatically.
 
+## Hearthwild (open world, single-player)
+
+| File | Role |
+|---|---|
+| `openworld/noise.ts` | Seeded simplex/fbm/ridged noise and a hash RNG. |
+| `openworld/terrain.ts` | `WorldGen`: island heightmap (fbm hills + ridged mountains, island falloff, flattened village), biomes, flat-shaded 64 m terrain chunk meshes, deterministic resource nodes per chunk, the village layout and 10 ruins with spawns and chests. Pure functions of the seed. |
+| `openworld/content.ts` | Items, recipes (with station and skill requirements), structures, skills with the XP curve, resource nodes, tool bonuses and enemy stats. |
+| `openworld/sim.ts` | `OpenWorld`: the rules. Covers collision (water, village and ruin props, built structures including rotated walls, standing resource nodes), gathering (timed hits, tool and skill speed, depletion and regrowth), crafting, building validation, combat, enemy AI (aggro, leash, steering), night wanderers, regeneration, death and respawn at your home, loot chests and saving. It runs on a 50 ms timer with timestamped input, like the arena's offline simulation. |
+| `openworld/render.ts` | Chunk streaming (2 chunks built per frame, nearest first), instanced resources, buildings and structures (one draw call per model part), water, sun/moon and sky colour by time of day, campfire lights, the build-placement ghost and terrain picking. |
+| `openworld/main.ts` | Start screen (continue or new hero), game loop, input, HUD, the inventory, crafting, build, skills, map and menu panels, and the minimap. |
+
+Only changes are saved (player, depleted nodes, structures, chest timers): the untouched world regenerates from the seed. The rules are plain data plus functions with time passed in, so they can move into a SpacetimeDB module for multiplayer the same way the arena's did.
+
 ## Single-player build
 
 `OFFLINE=1 vite build` (`npm run build:offline`) swaps the backend at build time: `client/src/backend.ts` defines the interface, `net.ts` implements it over SpacetimeDB, and `offline/backend.ts` + `offline/sim.ts` implement it in the browser with the same rules as the module (movement and collision, enemy AI with steering and line of sight, combat, respawns, pickups, the re-entry rule). The simulation exposes the same table callbacks and reducer calls the game reads from a SpacetimeDB connection, so rendering and input code are shared. Differences from the server: one player, no accounts (a hero name and progress are kept in `localStorage`), and time is replayed in 50 ms steps with timestamped input so movement does not depend on frame rate. The bundle contains neither the SpacetimeDB SDK nor `eval`. For page hosts that serve only standard web file types and block `fetch` of `blob:` URLs (claude.ai), models ship as base64 JSON and embedded textures are decoded through `<img>`.

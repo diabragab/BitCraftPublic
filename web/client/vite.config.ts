@@ -24,6 +24,8 @@ export default defineConfig({
     assetsDir: 'assets/js',
     chunkSizeWarningLimit: 900,
     rollupOptions: {
+      // index.html: arena (multiplayer, or single-player when OFFLINE); world.html: the open world
+      input: { index: 'index.html', world: 'world.html' },
       output: { manualChunks: offline ? { three: ['three'] } : { three: ['three'], spacetimedb: ['spacetimedb'] } },
     },
   },
