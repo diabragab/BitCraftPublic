@@ -101,6 +101,8 @@ export async function createGateway(config, { accounts, spacetime } = {}) {
     try {
       await spacetime.authorizeSession(identity, account.username);
     } catch (e) {
+      // Registration only counts if the player can actually play; otherwise a retry would hit "username taken".
+      if (create) accounts.delete(account.username);
       log('error', 'authorize_session failed', { error: e.message });
       const hint = e.message.includes('Only the login gateway')
         ? 'Game server has not registered this gateway yet (run web/scripts/register-gateway.sh).'

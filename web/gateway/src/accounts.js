@@ -1,5 +1,5 @@
 import { DatabaseSync } from 'node:sqlite';
-import { mkdirSync } from 'node:fs';
+import { chmodSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { randomBytes, scrypt as scryptCb, timingSafeEqual } from 'node:crypto';
 import { promisify } from 'node:util';
@@ -26,8 +26,12 @@ export class AccountStore {
     if (dataDir === ':memory:') {
       this.db = new DatabaseSync(':memory:');
     } else {
-      mkdirSync(dataDir, { recursive: true });
-      this.db = new DatabaseSync(join(dataDir, 'accounts.sqlite'));
+      // Password hashes must not be readable by other local users (also tightens existing installs).
+      mkdirSync(dataDir, { recursive: true, mode: 0o700 });
+      chmodSync(dataDir, 0o700);
+      const file = join(dataDir, 'accounts.sqlite');
+      this.db = new DatabaseSync(file);
+      chmodSync(file, 0o600);
     }
     // Idempotent, non-destructive schema setup.
     this.db.exec(`CREATE TABLE IF NOT EXISTS accounts (
@@ -52,6 +56,11 @@ export class AccountStore {
       throw e;
     }
     return { username };
+  }
+
+  /** Removes an account; used to roll back a registration whose session could not be authorized. */
+  delete(username) {
+    this.db.prepare('DELETE FROM accounts WHERE username_key = ?').run(username.toLowerCase());
   }
 
   /** Returns the canonical account name, or null if the credentials are wrong. */

@@ -98,6 +98,32 @@ impl ArenaMap {
         (px, pz)
     }
 
+    /// Moves up to `step` towards (tx, tz). When the direct route is mostly blocked (a tree, a
+    /// pillar), tries directions rotated to either side and takes the one that ends closest to
+    /// the target among those that make real progress. A cheap stand-in for pathfinding.
+    pub fn steer(&self, x: f32, z: f32, tx: f32, tz: f32, step: f32, radius: f32) -> (f32, f32) {
+        let dist = ((tx - x).powi(2) + (tz - z).powi(2)).sqrt();
+        if dist < 1e-4 {
+            return (x, z);
+        }
+        let (dx, dz) = ((tx - x) / dist, (tz - z) / dist);
+        let direct = self.slide(x, z, dx * step, dz * step, radius);
+        let moved = |p: (f32, f32)| ((p.0 - x).powi(2) + (p.1 - z).powi(2)).sqrt();
+        if moved(direct) >= step * 0.6 {
+            return direct;
+        }
+        let to_target = |p: (f32, f32)| (p.0 - tx).powi(2) + (p.1 - tz).powi(2);
+        [0.6f32, -0.6, 1.2, -1.2, 1.8, -1.8]
+            .iter()
+            .map(|a| {
+                let (sin, cos) = a.sin_cos();
+                self.slide(x, z, (dx * cos - dz * sin) * step, (dx * sin + dz * cos) * step, radius)
+            })
+            .filter(|p| moved(*p) >= step * 0.6)
+            .min_by(|a, b| to_target(*a).partial_cmp(&to_target(*b)).unwrap())
+            .unwrap_or(direct)
+    }
+
     /// True if no wall (box collider) blocks the straight line between two points.
     /// Round props (trees, pillars) are ignored so they do not make fights frustrating.
     pub fn line_of_sight(&self, x0: f32, z0: f32, x1: f32, z1: f32) -> bool {
@@ -159,6 +185,30 @@ mod tests {
         );
         assert!(m.line_of_sight(0.0, 14.0, 0.0, 19.0), "south gate is open");
         assert!(m.line_of_sight(20.0, 20.0, 25.0, 25.0), "open field");
+    }
+
+    #[test]
+    fn steering_gets_around_a_tree() {
+        let m = map();
+        // an outdoor tree well inside the bounds
+        let (cx, cz, r) = m
+            .colliders
+            .iter()
+            .find_map(|c| match *c {
+                Collider::Circle { x, z, r } if r < 0.75 && x.abs() < 28.0 && z.abs() < 28.0 && z.abs() > 20.0 => Some((x, z, r)),
+                _ => None,
+            })
+            .expect("a tree");
+        // start right behind the tree, target straight through it
+        let (mut x, mut z) = (cx - (r + 0.6), cz);
+        let (tx, tz) = (cx + 4.0, cz);
+        let (sx, _) = m.slide(x, z, 4.0 + r + 0.6, 0.0, 0.55);
+        assert!(sx < cx, "precondition: the tree blocks the straight path");
+        for _ in 0..200 {
+            (x, z) = m.steer(x, z, tx, tz, 3.6 * 0.05, 0.55);
+        }
+        let left = ((x - tx).powi(2) + (z - tz).powi(2)).sqrt();
+        assert!(left < 1.0, "stuck {left:.2} m from the target at ({x:.2}, {z:.2})");
     }
 
     #[test]

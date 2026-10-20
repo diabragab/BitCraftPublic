@@ -158,17 +158,29 @@ await step('combat: fight a skeleton until it dies (server-validated hits)', asy
   await pageA.keyboard.up('d');
   const t0 = Date.now();
   let s = await snap(pageA);
+  let lastPos = null;
+  let lastStepped = false;
   while (Date.now() - t0 < 40000) {
     await pageA.keyboard.press(' ');
     await sleep(350);
     s = await snap(pageA);
     if (s.me.kills > 0) break;
     const e = s.enemies.filter((x) => x.alive).sort((a, b) => Math.hypot(a.x - s.me.x, a.z - s.me.z) - Math.hypot(b.x - s.me.x, b.z - s.me.z))[0];
-    if (e && Math.hypot(e.x - s.me.x, e.z - s.me.z) > 2.4 && Math.hypot(e.x - s.me.x, e.z - s.me.z) < 12) {
-      const k = Math.abs(e.x - s.me.x) > Math.abs(e.z - s.me.z) ? (e.x > s.me.x ? 'd' : 'a') : e.z > s.me.z ? 's' : 'w';
+    const d = e && Math.hypot(e.x - s.me.x, e.z - s.me.z);
+    if (e && d > 2.0 && d < 14) {
+      // close in along the larger axis; if scenery blocks that, side-step along the other one
+      const major = Math.abs(e.x - s.me.x) > Math.abs(e.z - s.me.z);
+      const keyX = e.x > s.me.x ? 'd' : 'a';
+      const keyZ = e.z > s.me.z ? 's' : 'w';
+      const blocked = lastPos && Math.hypot(lastPos.x - s.me.x, lastPos.z - s.me.z) < 0.2 && lastStepped;
+      const k = major !== !!blocked ? keyX : keyZ;
+      lastPos = { x: s.me.x, z: s.me.z };
+      lastStepped = true;
       await pageA.keyboard.down(k);
-      await sleep(250);
+      await sleep(300);
       await pageA.keyboard.up(k);
+    } else {
+      lastStepped = false;
     }
   }
   assert(s.me.kills > 0, `no kill after 40s: ${JSON.stringify(s.me)}`);

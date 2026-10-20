@@ -31,8 +31,10 @@ test map::tests::walls_block_line_of_sight ... ok
 test map::tests::bounds_clamp ... ok
 test rules::tests::melee_cone ... ok
 test rules::tests::ranged_line ... ok
+test map::tests::steering_gets_around_a_tree ... ok
+test rules::tests::reentry_never_skips_death_or_heals ... ok
 test rules::tests::unknown_class_rejected ... ok
-test result: ok. 7 passed; 0 failed
+test result: ok. 9 passed; 0 failed
 ```
 `cargo fmt --check` clean; `cargo clippy --target wasm32-unknown-unknown` no warnings; `spacetime build` OK; committed TypeScript bindings identical to a fresh `spacetime generate`.
 
@@ -40,14 +42,18 @@ test result: ok. 7 passed; 0 failed
 ```
 ok 1 - credential validation
 ok 2 - account store hashes and verifies passwords
-ok 3 - proxy only exposes client endpoints
-ok 4 - identity token verification            (valid / wrong key / expired / alg "none" / malformed)
-ok 5 - auth routes (fake SpacetimeDB)          (201, 409, 401, 400, 403 cross-origin, 429, security headers, /v1 sql → 403)
-ok 6 - integration: real SpacetimeDB login flow (identity from SpacetimeDB → register → enter_world → class whitelist)
-# pass 6  # fail 0
+ok 3 - account database is private to the gateway user   (dir 0700, file 0600)
+ok 4 - proxy only exposes client endpoints
+ok 5 - identity token verification            (valid / wrong key / expired / alg "none" / malformed)
+ok 6 - auth routes (fake SpacetimeDB)          (201, 409, 401, 400, 403 cross-origin, 429, security headers, /v1 sql → 403)
+ok 7 - registration is rolled back when the game server refuses the session
+ok 8 - integration: real SpacetimeDB login flow (identity from SpacetimeDB → register → enter_world → class whitelist)
+# pass 8  # fail 0
 ```
 
-### Browser end-to-end — `npm run test:e2e` (final run)
+### Browser end-to-end — `npm run test:e2e`
+
+After the PR-review fixes the suite was run twice in a row: 17/17 both times. Output of an earlier full run:
 ```
 ✔ health endpoint reports SpacetimeDB + module + account store — latency 2ms
 ✔ admin endpoints are not reachable through the gateway
@@ -90,6 +96,10 @@ ok 6 - integration: real SpacetimeDB login flow (identity from SpacetimeDB → r
 | E2E | Touch auto-aim used the predicted position, not the server's | Auto-aim measured from the authoritative position |
 | E2E | Class picker on a new device ran before the transferred character row arrived | Picker waits briefly for the row |
 | Screenshot review | HUD overlapped on 390 px phones | Narrow-screen layout |
+| PR review (Codex) | `enter_world` revived a dead player instantly, and leaving/re-entering or switching class healed to full | `rules::reentry`: dead players wait for the respawn timer; re-entry and class switches keep the health fraction (unit-tested) |
+| PR review (Codex) | Account DB created with umask permissions (hashes readable by other local users) | Data dir 0700, `accounts.sqlite` 0600, also applied to existing installs (tested) |
+| E2E regression run | Enemies had no obstacle avoidance and could stall on a tree just outside their attack range, making fights (and the combat test) depend on where they snagged | `ArenaMap::steer` tries rotated directions when the direct step is blocked (unit test: gets around a tree); the test's chase loop side-steps when blocked |
+| PR review (Codex) | Failed session authorization left the new account behind ("username taken" on retry) | Registration rolled back on that path (tested; both new tests fail on the old code) |
 
 ## 4. Not verified here (needs real hardware / hosting)
 

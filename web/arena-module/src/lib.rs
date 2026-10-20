@@ -358,16 +358,15 @@ pub fn enter_world(ctx: &ReducerContext, class: String) -> Result<(), String> {
     let (x, z) = pick_player_spawn(ctx);
     match ctx.db.player().identity().find(ctx.sender()) {
         Some(mut p) => {
-            let changed = p.class != class;
-            p.class = class;
-            p.max_hp = stats.max_hp;
-            if changed || !p.alive || !p.in_world {
-                p.hp = stats.max_hp;
-                p.alive = true;
+            let entry = reentry(p.alive, ctx.timestamp >= p.respawn_at, p.hp, p.max_hp, stats.max_hp)?;
+            if entry.respawn {
                 p.x = x;
                 p.z = z;
             }
-            p.hp = p.hp.min(p.max_hp);
+            p.alive = true;
+            p.hp = entry.hp;
+            p.class = class;
+            p.max_hp = stats.max_hp;
             p.in_world = true;
             p.online = true;
             ctx.db.player().identity().update(p);
@@ -627,7 +626,7 @@ fn tick_enemies(ctx: &ReducerContext, dt: f32) {
                     e.facing = facing_to(dx, dz);
                     if dist > st.range {
                         let step = (st.speed * dt).min(dist - st.range * 0.8);
-                        let (nx, nz) = m.slide(e.x, e.z, dx / dist * step, dz / dist * step, ENEMY_RADIUS);
+                        let (nx, nz) = m.steer(e.x, e.z, t.x, t.z, step, ENEMY_RADIUS);
                         e.moving = (nx - e.x).abs() > 1e-4 || (nz - e.z).abs() > 1e-4;
                         e.x = nx;
                         e.z = nz;
@@ -647,7 +646,7 @@ fn tick_enemies(ctx: &ReducerContext, dt: f32) {
                     let dist = (dx * dx + dz * dz).sqrt();
                     if dist > 0.3 {
                         let step = (st.speed * 0.6 * dt).min(dist);
-                        let (nx, nz) = m.slide(e.x, e.z, dx / dist * step, dz / dist * step, ENEMY_RADIUS);
+                        let (nx, nz) = m.steer(e.x, e.z, spawn.x, spawn.z, step, ENEMY_RADIUS);
                         e.moving = (nx - e.x).abs() > 1e-4 || (nz - e.z).abs() > 1e-4;
                         e.x = nx;
                         e.z = nz;

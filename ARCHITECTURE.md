@@ -67,8 +67,8 @@ Browser                         Gateway                               SpacetimeD
 |---|---|---|
 | Movement | `world_tick` → `tick_players` | `position += normalize(input) × class speed × dt`, collision via `slide()` against `map.json` boxes/circles and arena bounds; inputs older than 1 s are ignored (no runaway on disconnect). |
 | Player attack | `attack` reducer | Cooldown per class; melee = range + cone (`attack_hits`), mage = 10 m line, first target only; line-of-sight through walls required; 12 % crit ×2; kills award gold. |
-| Enemy AI | `tick_enemies` | Aggro on visible players within range, leash 18 m from spawn, never target players inside the camp; chase with collision; attack on cooldown with LOS; return home and heal when idle; respawn after 12 s. |
-| Death / respawn | `damage_player`, `tick_players` | Dead for 5 s, then respawn at a free camp spawn with full HP. |
+| Enemy AI | `tick_enemies` | Aggro on visible players within range, leash 18 m from spawn, never target players inside the camp; chase with collision, steering around trees/pillars when the direct step is blocked (no full pathfinding); attack on cooldown with LOS; return home and heal when idle; respawn after 12 s. |
+| Death / respawn | `damage_player`, `tick_players`, `enter_world` | Dead for 5 s, then respawn at a free camp spawn with full HP. `enter_world` refuses dead characters until the timer has passed, and re-entering or switching class keeps the health fraction (no free heals). |
 | Pickups | `tick_pickups` | Proximity pickup (1.3 m), potions +1 / gold +10, respawn after 20 s. |
 | Items | `use_potion` | Server checks count and full-health. |
 
@@ -95,7 +95,7 @@ Clients **cannot** set position, health, gold, kills or cooldowns: those columns
 
 | Area | Measure |
 |---|---|
-| Secrets | None in the repo or frontend. `.env`, `.secrets/`, `.data/` are git-ignored; `.env.example` has placeholders only. |
+| Secrets | None in the repo or frontend. `.env`, `.secrets/`, `.data/` are git-ignored; `.env.example` has placeholders only. The gateway token file is 0600, the account data directory 0700 and `accounts.sqlite` 0600. |
 | Admin surface | SpacetimeDB on localhost; gateway proxy allow-list; owner-only `register_gateway`; database identity-only `world_tick`. |
 | Input validation | Gateway: username regex, password length, JSON body ≤ 16 KB, content-type check, per-IP rate limit on auth. Module: finite-number checks, vector clamping, class whitelist, username regex, session check on every gameplay reducer. |
 | Browser hardening | CSP (`script-src 'self' 'unsafe-eval'` — the eval is required by the SpacetimeDB SDK's generated serializers), `X-Frame-Options: DENY`, `nosniff`, `no-referrer`. |

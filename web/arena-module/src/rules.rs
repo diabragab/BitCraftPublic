@@ -119,6 +119,32 @@ pub const INPUT_TIMEOUT_MS: i64 = 1_000;
 pub const ENEMY_RADIUS: f32 = 0.55;
 pub const SESSION_TTL_MS: i64 = 24 * 60 * 60 * 1000;
 
+pub struct Reentry {
+    pub hp: i32,
+    /// True when the character comes back from death and must be placed at a spawn point.
+    pub respawn: bool,
+}
+
+/// Health when an existing character (re-)enters the world, possibly as a new class.
+/// Dead characters must wait for their respawn timer, and neither re-entering nor
+/// switching class heals: the health fraction is kept.
+pub fn reentry(alive: bool, respawn_due: bool, hp: i32, old_max: i32, new_max: i32) -> Result<Reentry, String> {
+    if !alive {
+        if !respawn_due {
+            return Err("You are dead: wait for the respawn timer".into());
+        }
+        return Ok(Reentry {
+            hp: new_max,
+            respawn: true,
+        });
+    }
+    let scaled = (hp as i64 * new_max as i64 / old_max.max(1) as i64) as i32;
+    Ok(Reentry {
+        hp: scaled.clamp(1, new_max),
+        respawn: false,
+    })
+}
+
 /// Smallest signed difference between two angles.
 pub fn angle_diff(a: f32, b: f32) -> f32 {
     let mut d = (a - b) % std::f32::consts::TAU;
@@ -169,6 +195,18 @@ mod tests {
         assert!(attack_hits(&m, 0.0, 0.0, east, 8.0, 0.5));
         assert!(!attack_hits(&m, 0.0, 0.0, east, 8.0, 2.0));
         assert!(!attack_hits(&m, 0.0, 0.0, east, -3.0, 0.0));
+    }
+
+    #[test]
+    fn reentry_never_skips_death_or_heals() {
+        assert!(reentry(false, false, 0, 140, 140).is_err(), "dead before the respawn timer");
+        let r = reentry(false, true, 0, 140, 85).unwrap();
+        assert!(r.respawn && r.hp == 85, "respawn when the timer has passed");
+        let r = reentry(true, false, 70, 140, 140).unwrap();
+        assert!(!r.respawn && r.hp == 70, "re-entering keeps health");
+        let r = reentry(true, false, 70, 140, 120).unwrap();
+        assert_eq!(r.hp, 60, "class switch keeps the health fraction");
+        assert_eq!(reentry(true, false, 1, 140, 85).unwrap().hp, 1);
     }
 
     #[test]

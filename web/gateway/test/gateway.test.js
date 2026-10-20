@@ -1,6 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { generateKeyPairSync, sign } from 'node:crypto';
+import { mkdtempSync, rmSync, statSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join } from 'node:path';
 import { AccountStore, validateCredentials } from '../src/accounts.js';
 import { proxyRule } from '../src/proxy.js';
 import { SpacetimeClient } from '../src/spacetime.js';
@@ -33,6 +36,15 @@ test('account store hashes and verifies passwords', async () => {
   const row = store.db.prepare('SELECT hash FROM accounts').get();
   assert.ok(!Buffer.from(row.hash).toString('utf8').includes('correct horse'));
   store.close();
+});
+
+test('account database is private to the gateway user', () => {
+  const dir = join(mkdtempSync(join(tmpdir(), 'arena-accounts-')), 'data');
+  const store = new AccountStore(dir);
+  assert.equal(statSync(dir).mode & 0o777, 0o700);
+  assert.equal(statSync(join(dir, 'accounts.sqlite')).mode & 0o777, 0o600);
+  store.close();
+  rmSync(dirname(dir), { recursive: true, force: true });
 });
 
 test('proxy only exposes client endpoints', () => {
@@ -107,6 +119,35 @@ test('auth routes (fake SpacetimeDB)', async (t) => {
 
   res = await fetch(base + '/v1/database/arena/sql', { method: 'POST' });
   assert.equal(res.status, 403);
+});
+
+test('registration is rolled back when the game server refuses the session', async (t) => {
+  const { privateKey, publicKey } = generateKeyPairSync('ec', { namedCurve: 'P-256' });
+  let gatewayRegistered = false;
+  const spacetime = new SpacetimeClient({ spacetimeUrl: 'http://unused', database: 'arena', tokenFile: '/dev/null' });
+  spacetime.publicKey = publicKey;
+  spacetime.ensureIdentity = async () => (spacetime.identity = 'gateway');
+  spacetime.authorizeSession = async () => {
+    if (!gatewayRegistered) throw new Error('Reducer authorize_session failed: Only the login gateway may authorize sessions');
+  };
+  const gw = await createGateway(
+    { host: '127.0.0.1', port: 0, database: 'arena', staticDir: null, allowedOrigins: [], authRateLimit: 50, logRequests: false },
+    { accounts: new AccountStore(':memory:'), spacetime },
+  );
+  const { port } = await gw.listen();
+  t.after(() => gw.close());
+  const register = () =>
+    fetch(`http://127.0.0.1:${port}/api/auth/register`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ username: 'Early', password: 'password123', identityToken: makeToken(privateKey, { hex_identity: IDENTITY }) }),
+    });
+  let res = await register();
+  assert.equal(res.status, 503);
+  assert.match((await res.json()).error, /register-gateway/);
+  gatewayRegistered = true;
+  res = await register();
+  assert.equal(res.status, 201, 'the same username can be registered once the server accepts sessions');
 });
 
 // Runs only when a local SpacetimeDB with the arena module is up (see web/scripts/dev.sh).

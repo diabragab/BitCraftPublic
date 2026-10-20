@@ -43,5 +43,5 @@ The SpacetimeDB TypeScript SDK *can* talk to the BitCraft modules (same protocol
 
 1. Run the E2E suite and a manual play session on real GPUs / phones; tune performance (merge character sub-meshes into one skinned mesh per character to cut ~200 draw calls).
 2. Deploy: TLS reverse proxy (Caddy/nginx) → gateway; SpacetimeDB on the same private host; back up `web/.data/` and the SpacetimeDB data dir; rotate the gateway token if leaked (delete the file, restart, re-register).
-3. Gameplay depth: more enemy types, loot/equipment (inventory is a placeholder), PvP toggle, more maps.
+3. Gameplay depth: real pathfinding for enemies (they currently only steer around single obstacles), more enemy types, loot/equipment (inventory is a placeholder), PvP toggle, more maps.
 4. If Clockwork Labs later publishes client tooling or sample data, revisit a real BitCraft web client.
