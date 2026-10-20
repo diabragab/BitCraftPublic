@@ -64,3 +64,6 @@ button.danger-fill { background: linear-gradient(180deg, #ef6a52, #c23b30); colo
   .entry { grid-template-columns: 32px 1fr; }
   .entry button { grid-column: 1 / -1; }
 }
+
+label.range { display: grid; grid-template-columns: 1fr 2fr; align-items: center; gap: 12px; font-size: 14px; }
+label.range input { width: 100%; accent-color: var(--gold); }

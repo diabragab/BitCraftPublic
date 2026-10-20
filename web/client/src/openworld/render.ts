@@ -1,11 +1,24 @@
 import * as THREE from 'three';
 import { gltf } from '../assets';
 import { STRUCTURES, type StructureId } from './content';
+import { hash2, mulberry32 } from './noise';
+import { Fires, Outline, crystalMaterial, depthTexture, grassMaterial, grassTuftGeometry, updateFx, waterMaterial, windMaterials } from './shaders';
 import type { OpenWorld } from './sim';
-import { CHUNK, WORLD_HALF, type Placed, type ResourceNode } from './terrain';
+import { CHUNK, VILLAGE_RADIUS, WORLD_HALF, type Placed, type ResourceNode } from './terrain';
 
 const isMobile = matchMedia('(pointer: coarse)').matches;
 const VIEW_CHUNKS = isMobile ? 2 : 3; // chunks loaded in each direction around the player
+const WATER_Y = -0.15;
+const WATER_SEGMENTS = 96;
+
+interface GroupOpts {
+  shadows?: boolean;
+  tint?: THREE.Color;
+  /** Trees sway in the wind (shaders.ts). */
+  wind?: boolean;
+  /** Pulsing ore glow (shaders.ts). */
+  crystal?: boolean;
+}
 
 /**
  * All instances of one model, drawn with one InstancedMesh per sub-mesh. Rebuilt wholesale
@@ -14,22 +27,28 @@ const VIEW_CHUNKS = isMobile ? 2 : 3; // chunks loaded in each direction around 
  */
 class InstanceGroup {
   private meshes: THREE.InstancedMesh[] = [];
-  private parts: { geometry: THREE.BufferGeometry; material: THREE.Material | THREE.Material[]; local: THREE.Matrix4 }[] = [];
+  private parts: { geometry: THREE.BufferGeometry; material: THREE.Material | THREE.Material[]; depth?: THREE.Material; local: THREE.Matrix4 }[] = [];
   private capacity = 0;
 
-  constructor(private scene: THREE.Scene, model: string, private shadows: boolean, tint?: THREE.Color) {
+  constructor(private scene: THREE.Scene, model: string, private shadows: boolean, opts: GroupOpts) {
     const root = gltf(model).scene;
     root.updateMatrixWorld(true);
     root.traverse((o) => {
       const mesh = o as THREE.Mesh;
       if (!mesh.isMesh) return;
       let material = mesh.material;
-      if (tint) {
-        material = (Array.isArray(material) ? material[0] : material).clone();
-        (material as THREE.MeshStandardMaterial).color.multiply(tint);
-        (material as THREE.MeshStandardMaterial).emissive = tint.clone().multiplyScalar(0.12);
+      let depth: THREE.Material | undefined;
+      if (opts.tint || opts.crystal || opts.wind) {
+        let single = (Array.isArray(material) ? material[0] : material).clone();
+        if (opts.tint) {
+          (single as THREE.MeshStandardMaterial).color.multiply(opts.tint);
+          (single as THREE.MeshStandardMaterial).emissive = opts.tint.clone().multiplyScalar(0.12);
+        }
+        if (opts.crystal) crystalMaterial(single);
+        if (opts.wind) ({ material: single, depth } = windMaterials(single, mesh.geometry));
+        material = single;
       }
-      this.parts.push({ geometry: mesh.geometry, material, local: mesh.matrixWorld.clone() });
+      this.parts.push({ geometry: mesh.geometry, material, depth, local: mesh.matrixWorld.clone() });
     });
   }
 
@@ -42,6 +61,7 @@ class InstanceGroup {
       this.capacity = Math.max(16, Math.ceil(matrices.length * 1.5));
       this.meshes = this.parts.map((p) => {
         const m = new THREE.InstancedMesh(p.geometry, p.material, this.capacity);
+        if (p.depth) m.customDepthMaterial = p.depth;
         m.castShadow = this.shadows;
         m.receiveShadow = true;
         m.frustumCulled = false;
@@ -75,12 +95,21 @@ export class WorldRenderer {
   readonly sun = new THREE.DirectionalLight('#fff3dd', 2.4);
   private hemi = new THREE.HemisphereLight('#dfefff', '#5a4a3a', 1.3);
   private water: THREE.Mesh;
+  private waterMat: THREE.ShaderMaterial;
+  private grass: THREE.InstancedMesh | null = null;
+  private grassMat = grassMaterial();
+  private grassGeo = grassTuftGeometry();
+  private grassCache = new Map<string, { x: number; y: number; z: number; rot: number; scale: number; forest: boolean }[]>();
+  grassEnabled = true;
+  private flames: Fires;
+  private outline: Outline;
+  private fxPlayer = new THREE.Vector3();
   private terrainMat = new THREE.MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 1 });
   private chunks = new Map<string, THREE.Mesh>();
   private chunkQueue: [number, number][] = [];
   private groups = new Map<string, InstanceGroup>();
   private visibleChunkKey = '';
-  private fires: { mesh: THREE.Mesh; light: THREE.PointLight }[] = [];
+  private fires: THREE.PointLight[] = [];
   private ghost: THREE.Object3D | null = null;
   private ghostType: StructureId | null = null;
   readonly terrainMeshes: THREE.Mesh[] = [];
@@ -107,13 +136,17 @@ export class WorldRenderer {
     this.sun.shadow.bias = -0.0006;
     this.scene.add(this.sun, this.sun.target);
 
-    this.water = new THREE.Mesh(
-      new THREE.PlaneGeometry(VIEW_CHUNKS * CHUNK * 3, VIEW_CHUNKS * CHUNK * 3),
-      new THREE.MeshStandardMaterial({ color: '#3f86c9', transparent: true, opacity: 0.82, roughness: 0.35, metalness: 0.1 }),
-    );
+    // water depth comes from the island's heightmap (2-3 m per texel is enough for shore foam)
+    const depth = depthTexture((x, z) => world.gen.height(x, z), WORLD_HALF, 256, WATER_Y);
+    this.waterMat = waterMaterial(depth, WORLD_HALF, WATER_Y);
+    const size = VIEW_CHUNKS * CHUNK * 3;
+    this.water = new THREE.Mesh(new THREE.PlaneGeometry(size, size, WATER_SEGMENTS, WATER_SEGMENTS), this.waterMat);
     this.water.rotation.x = -Math.PI / 2;
-    this.water.position.y = -0.15;
+    this.water.position.y = WATER_Y;
+    this.water.frustumCulled = false;
     this.scene.add(this.water);
+    this.flames = new Fires(this.scene);
+    this.outline = new Outline(this.scene);
 
     this.setShadows(this.shadowsEnabled);
     this.buildStatic();
@@ -141,11 +174,11 @@ export class WorldRenderer {
   }
 
   /** Instance group for a model; `set` separates users of the same model (village vs player-built). */
-  private group(model: string, set = 'nodes', shadows = true, tint?: THREE.Color) {
+  private group(model: string, set = 'nodes', opts: GroupOpts = {}) {
     const key = `${set}:${model}`;
     let g = this.groups.get(key);
     if (!g) {
-      g = new InstanceGroup(this.scene, model, shadows && !isMobile, tint);
+      g = new InstanceGroup(this.scene, model, (opts.shadows ?? true) && !isMobile, opts);
       this.groups.set(key, g);
     }
     return g;
@@ -185,25 +218,114 @@ export class WorldRenderer {
     }
     for (const [model, mats] of byModel) this.group(model, 'built').set(mats);
     // flames + light for campfires
-    for (const f of this.fires) {
-      f.mesh.removeFromParent();
-      f.light.removeFromParent();
+    for (const light of this.fires) light.removeFromParent();
+    const campfires = this.world.structures.filter((s) => s.type === 'campfire');
+    this.flames.set(campfires.map((s) => new THREE.Vector3(s.x, this.world.gen.height(s.x, s.z) + 0.55, s.z)));
+    this.fires = campfires.map((s) => {
+      const light = new THREE.PointLight('#ff9a3c', 0, 14, 1.6);
+      light.position.set(s.x, this.world.gen.height(s.x, s.z) + 1.6, s.z);
+      this.scene.add(light);
+      return light;
+    });
+    this.rebuildGrass();
+  }
+
+  /** Grass tufts for one chunk: deterministic, only on grass and forest, never in the village or ruins. */
+  private grassInChunk(cx: number, cz: number) {
+    const key = `${cx},${cz}`;
+    let list = this.grassCache.get(key);
+    if (list) return list;
+    list = [];
+    const gen = this.world.gen;
+    const rnd = mulberry32(hash2(cx, cz, gen.seed ^ 0x6a55));
+    const cell = 2;
+    const density = isMobile ? 0.5 : 1;
+    for (let j = 0; j < CHUNK / cell; j++) {
+      for (let i = 0; i < CHUNK / cell; i++) {
+        const x = cx * CHUNK + (i + rnd()) * cell;
+        const z = cz * CHUNK + (j + rnd()) * cell;
+        const roll = rnd();
+        const rot = rnd() * Math.PI * 2;
+        const scale = 0.55 + rnd() * 0.4;
+        if (Math.hypot(x, z) < VILLAGE_RADIUS + 3) continue;
+        const h = gen.height(x, z);
+        const biome = gen.biome(x, z, h);
+        if (biome !== 'grass' && biome !== 'forest') continue;
+        if (roll > (biome === 'grass' ? 0.5 : 0.3) * density) continue;
+        if (gen.ruins.some((r) => Math.hypot(r.x - x, r.z - z) < 12)) continue;
+        list.push({ x, y: h - 0.05, z, rot, scale, forest: biome === 'forest' });
+      }
     }
-    this.fires = this.world.structures
-      .filter((s) => s.type === 'campfire')
-      .map((s) => {
-        const y = this.world.gen.height(s.x, s.z);
-        const mesh = new THREE.Mesh(new THREE.ConeGeometry(0.45, 1.3, 7), new THREE.MeshBasicMaterial({ color: '#ffb347', transparent: true, opacity: 0.9 }));
-        mesh.position.set(s.x, y + 0.9, s.z);
-        const light = new THREE.PointLight('#ff9a3c', 0, 14, 1.6);
-        light.position.set(s.x, y + 1.6, s.z);
-        this.scene.add(mesh, light);
-        return { mesh, light };
-      });
+    if (this.grassCache.size > 40) this.grassCache.clear();
+    this.grassCache.set(key, list);
+    return list;
+  }
+
+  setGrass(on: boolean) {
+    this.grassEnabled = on;
+    this.rebuildGrass();
+  }
+
+  /** Grass for the 3x3 chunks around the player, kept clear of anything built. */
+  rebuildGrass() {
+    if (!this.grassEnabled) {
+      if (this.grass) this.grass.count = 0;
+      return;
+    }
+    const [pcx, pcz] = this.playerChunk();
+    const built = this.world.structures;
+    const tufts = [];
+    for (let cx = pcx - 1; cx <= pcx + 1; cx++) {
+      for (let cz = pcz - 1; cz <= pcz + 1; cz++) {
+        for (const t of this.grassInChunk(cx, cz)) {
+          if (!built.some((s) => Math.abs(s.x - t.x) < 2.5 && Math.abs(s.z - t.z) < 2.5)) tufts.push(t);
+        }
+      }
+    }
+    if (!this.grass || tufts.length > this.grass.instanceMatrix.count) {
+      this.grass?.removeFromParent();
+      this.grass?.dispose();
+      this.grass = new THREE.InstancedMesh(this.grassGeo, this.grassMat, Math.max(1024, Math.ceil(tufts.length * 1.3)));
+      this.grass.receiveShadow = true;
+      this.grass.frustumCulled = false;
+      this.scene.add(this.grass);
+    }
+    const m = new THREE.Matrix4();
+    const q = new THREE.Quaternion();
+    const up = new THREE.Vector3(0, 1, 0);
+    const meadow = new THREE.Color(1, 1, 1);
+    const forest = new THREE.Color(0.72, 0.84, 0.7);
+    tufts.forEach((t, i) => {
+      m.compose(new THREE.Vector3(t.x, t.y, t.z), q.setFromAxisAngle(up, t.rot), new THREE.Vector3(t.scale, t.scale, t.scale));
+      this.grass!.setMatrixAt(i, m);
+      this.grass!.setColorAt(i, t.forest ? forest : meadow);
+    });
+    this.grass.count = tufts.length;
+    this.grass.instanceMatrix.needsUpdate = true;
+    if (this.grass.instanceColor) this.grass.instanceColor.needsUpdate = true;
+  }
+
+  /** Outline around whatever the action key would use. */
+  highlight(target: ReturnType<OpenWorld['interactTarget']>) {
+    if (!target) return this.outline.clear();
+    const chest = target.type === 'chest';
+    const model = chest ? 'dungeon/chest_gold' : target.node.model;
+    const at = chest
+      ? matrixFor(target.x, this.world.gen.height(target.x, target.z), target.z, 0, 1)
+      : matrixFor(target.node.x, target.node.y, target.node.z, target.node.rot, target.node.scale);
+    const root = gltf(model).scene;
+    root.updateMatrixWorld(true);
+    const parts: { geometry: THREE.BufferGeometry; matrix: THREE.Matrix4 }[] = [];
+    root.traverse((o) => {
+      const mesh = o as THREE.Mesh;
+      if (mesh.isMesh) parts.push({ geometry: mesh.geometry, matrix: at.clone().multiply(mesh.matrixWorld) });
+    });
+    this.outline.show(chest ? `chest:${target.ruin}` : target.node.id, parts, !chest && target.node.kind === 'tree');
   }
 
   /** Rebuilds resource instances for the chunks around the player. */
   rebuildResources() {
+    this.outline.clear(); // a felled tree must not keep its outline until the next HUD refresh
     const now = Date.now();
     const groups = new Map<string, THREE.Matrix4[]>();
     const add = (key: string, m: THREE.Matrix4) => {
@@ -226,9 +348,11 @@ export class WorldRenderer {
     }
     const models = ['nature/tree_single_A', 'nature/tree_single_B', 'nature/tree_single_A_cut', 'nature/tree_single_B_cut',
       'nature/rock_single_A', 'nature/rock_single_B', 'nature/rock_single_C', 'nature/rock_single_D', 'nature/rock_single_E'];
-    for (const m of models) this.group(m).set(groups.get(m) ?? []);
+    for (const m of models) this.group(m, 'nodes', { wind: /tree_single_[AB]$/.test(m) }).set(groups.get(m) ?? []);
     const ironTint = new THREE.Color('#d08a5a');
-    for (const m of ['nature/rock_single_D', 'nature/rock_single_E']) this.group(m, 'iron', true, ironTint).set(groups.get(`iron:${m}`) ?? []);
+    for (const m of ['nature/rock_single_D', 'nature/rock_single_E']) {
+      this.group(m, 'iron', { tint: ironTint, crystal: true }).set(groups.get(`iron:${m}`) ?? []);
+    }
   }
 
   private playerChunk(): [number, number] {
@@ -262,6 +386,7 @@ export class WorldRenderer {
       // nearest first
       this.chunkQueue.sort((a, b) => Math.hypot(a[0] - pcx, a[1] - pcz) - Math.hypot(b[0] - pcx, b[1] - pcz));
       this.rebuildResources();
+      this.rebuildGrass();
     }
     for (let i = 0; i < 2 && this.chunkQueue.length; i++) {
       const [cx, cz] = this.chunkQueue.shift()!;
@@ -296,13 +421,15 @@ export class WorldRenderer {
     const dir = daylight > 0.05 ? 1 : -1;
     this.sun.position.set(focus.x + Math.cos(angle) * 40 * dir, focus.y + Math.max(18, Math.abs(elevation) * 45), focus.z + 18);
     this.sun.target.position.copy(focus);
-    this.water.position.x = focus.x;
-    this.water.position.z = focus.z;
+    // the water follows the camera in whole grid steps so its waves do not slide
+    const cell = (VIEW_CHUNKS * CHUNK * 3) / WATER_SEGMENTS;
+    this.water.position.x = Math.round(focus.x / cell) * cell;
+    this.water.position.z = Math.round(focus.z / cell) * cell;
+    this.waterMat.uniforms.uLight.value = 0.3 + 0.7 * daylight;
     const flicker = 0.85 + Math.sin(performance.now() / 90) * 0.1 + Math.random() * 0.05;
-    for (const f of this.fires) {
-      const dist = f.light.position.distanceTo(focus);
-      f.light.intensity = dist < 40 ? (6 + 14 * (1 - daylight)) * flicker : 0;
-      f.mesh.scale.set(1, flicker, 1);
+    for (const light of this.fires) {
+      const dist = light.position.distanceTo(focus);
+      light.intensity = dist < 40 ? (6 + 14 * (1 - daylight)) * flicker : 0;
     }
   }
 
@@ -348,6 +475,8 @@ export class WorldRenderer {
   }
 
   render() {
+    const p = this.world.player;
+    updateFx(performance.now() / 1000, this.fxPlayer.set(p.x, this.world.gen.height(p.x, p.z), p.z));
     this.renderer.render(this.scene, this.camera);
   }
 

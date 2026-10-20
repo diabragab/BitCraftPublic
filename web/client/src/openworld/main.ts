@@ -2,6 +2,7 @@ import '../style.css';
 import './world.css';
 import * as THREE from 'three';
 import { loadModels } from '../assets';
+import { audio, type Sfx } from '../audio';
 import { Bolt, CharacterView, createEnemyView } from '../entities';
 import { Input } from '../input';
 import { CLASS_IDS, CLASSES, type ClassId } from '../map';
@@ -11,6 +12,7 @@ import {
   type ItemId, type StructureId,
 } from './content';
 import { WorldRenderer } from './render';
+import { Dissolver, addXray } from './shaders';
 import { OpenWorld, type Enemy, type WorldEvent } from './sim';
 import { WORLD_HALF, WorldGen } from './terrain';
 
@@ -35,9 +37,9 @@ const MODELS = [
 const prefs = (() => {
   const mobile = matchMedia('(pointer: coarse)').matches;
   try {
-    return { shadows: !mobile, stats: false, ...JSON.parse(localStorage.getItem('hearthwild.prefs') ?? '{}') };
+    return { shadows: !mobile, stats: false, music: 0.5, sfx: 0.8, grass: true, ...JSON.parse(localStorage.getItem('hearthwild.prefs') ?? '{}') };
   } catch {
-    return { shadows: !mobile, stats: false };
+    return { shadows: !mobile, stats: false, music: 0.5, sfx: 0.8, grass: true };
   }
 })();
 const savePrefs = () => {
@@ -158,10 +160,14 @@ function setupStartScreen(portraits: Record<string, string>) {
 }
 
 function startGame(name: string, cls: ClassId, saved: ReturnType<typeof OpenWorld.load>, portraits: Record<string, string>) {
+  // called from the Play / Continue click, which is the user gesture browsers require for sound
+  audio.setVolumes(prefs.music, prefs.sfx);
+  audio.start();
   const world = new OpenWorld(SEED, name, cls, saved);
   const canvas = $<HTMLCanvasElement>('scene');
   const r = new WorldRenderer(canvas, world);
   r.setShadows(prefs.shadows);
+  r.setGrass(prefs.grass);
   const input = new Input(canvas);
   input.enabled = true;
   const islandImage = renderIslandImage(world.gen);
@@ -171,7 +177,8 @@ function startGame(name: string, cls: ClassId, saved: ReturnType<typeof OpenWorl
   const hero = new CharacterView(cls, { attackClip: clsDef.attackClip, label: name, plateClass: 'me' });
   const gatherClip = cls === 'barbarian' ? '2H_Melee_Attack_Chop' : '1H_Melee_Attack_Chop';
   r.scene.add(hero.root);
-  const enemyViews = new Map<number, { view: CharacterView; seen: { attack: number; hit: number } }>();
+  addXray(hero.root); // the hero shows through trees and buildings
+  const enemyViews = new Map<number, { view: CharacterView; seen: { attack: number; hit: number }; diedAt?: number; dissolver?: Dissolver }>();
   const bolts: Bolt[] = [];
   const addEnemyView = (e: Enemy) => {
     const view = createEnemyView(e.kind);
@@ -193,6 +200,7 @@ function startGame(name: string, cls: ClassId, saved: ReturnType<typeof OpenWorl
   };
   let toastTimer = 0;
   const toast = (text: string, kind: 'error' | 'info' = 'info') => {
+    if (kind === 'error') audio.play('error');
     const t = $('toast');
     t.textContent = text;
     t.className = `show ${kind === 'info' ? 'info' : ''}`;
@@ -211,28 +219,57 @@ function startGame(name: string, cls: ClassId, saved: ReturnType<typeof OpenWorl
     setTimeout(() => el.remove(), 900);
   };
 
+  // sounds fade out over 30 m from the hero
+  const sfxAt = (name: Sfx, x: number, z: number, delay = 0) => {
+    const v = 1 - Math.hypot(x - world.player.x, z - world.player.z) / 30;
+    if (delay) setTimeout(() => audio.play(name, v), delay);
+    else audio.play(name, v);
+  };
+  const FLOAT_SFX: Record<string, Sfx> = { '': 'hit', crit: 'crit', player: 'hurt', heal: 'potion', gain: 'pickup' };
   world.onEvent = (e: WorldEvent) => {
     switch (e.type) {
-      case 'float': floatText(e.x, e.z, e.text, e.style); break;
+      case 'float':
+        floatText(e.x, e.z, e.text, e.style);
+        sfxAt(FLOAT_SFX[e.style], e.x, e.z);
+        break;
+      case 'sound': sfxAt(e.name, e.x, e.z); break;
       case 'feed': feed(e.text); break;
       case 'toast': toast(e.text); break;
       case 'level':
         toast(`${SKILLS[e.skill].name} reached level ${e.level}!`);
         feed(`${SKILLS[e.skill].icon} ${SKILLS[e.skill].name} level ${e.level}`);
         hero.play('Cheer');
+        audio.play('levelup');
         break;
       case 'resources': r.rebuildResources(); break;
       case 'structures': r.buildStructures(); break;
       case 'enemy-added': addEnemyView(e.enemy); break;
-      case 'enemy-removed': enemyViews.get(e.id)?.view.dispose(); enemyViews.delete(e.id); break;
-      case 'gather-hit': hero.play(gatherClip); break;
+      case 'enemy-removed': {
+        const ev = enemyViews.get(e.id);
+        ev?.dissolver?.restore();
+        ev?.view.dispose();
+        enemyViews.delete(e.id);
+        break;
+      }
+      case 'gather-hit':
+        hero.play(gatherClip);
+        // the tool lands about a third of a second into the swing
+        sfxAt(e.node.kind === 'tree' ? 'chop' : 'mine', e.node.x, e.node.z, 350);
+        break;
       case 'player-attack':
         hero.play(clsDef.attackClip);
+        audio.play(clsDef.ranged ? 'zap' : 'swing');
         if (clsDef.ranged) spawnBolt(hero.root.position, e.facing, clsDef.range, '#7fd4ff');
         break;
-      case 'enemy-attack': break;
-      case 'death': hero.setAlive(false); break;
-      case 'respawn': hero.setAlive(true); break;
+      case 'enemy-attack': sfxAt(e.enemy.kind === 'mage' ? 'zap' : 'enemy-swing', e.enemy.x, e.enemy.z); break;
+      case 'death':
+        hero.setAlive(false);
+        audio.play('death');
+        break;
+      case 'respawn':
+        hero.setAlive(true);
+        audio.play('respawn');
+        break;
     }
   };
   const spawnBolt = (from: THREE.Vector3, facing: number, range: number, color: string) => {
@@ -508,6 +545,23 @@ function startGame(name: string, cls: ClassId, saved: ReturnType<typeof OpenWorl
     r.setShadows(prefs.shadows);
     savePrefs();
   };
+  for (const kind of ['music', 'sfx'] as const) {
+    const slider = $<HTMLInputElement>(`opt-${kind}`);
+    slider.value = String(Math.round(prefs[kind] * 100));
+    slider.oninput = () => {
+      prefs[kind] = Number(slider.value) / 100;
+      audio.setVolumes(prefs.music, prefs.sfx);
+      savePrefs();
+    };
+  }
+  document.addEventListener('click', (e) => (e.target as Element | null)?.closest?.('button') && audio.play('click'));
+  const grass = $<HTMLInputElement>('opt-grass');
+  grass.checked = prefs.grass;
+  grass.onchange = () => {
+    prefs.grass = grass.checked;
+    r.setGrass(prefs.grass);
+    savePrefs();
+  };
   const stats = $<HTMLInputElement>('opt-stats');
   stats.checked = prefs.stats;
   $('fps').classList.toggle('hidden', !prefs.stats);
@@ -549,6 +603,7 @@ function startGame(name: string, cls: ClassId, saved: ReturnType<typeof OpenWorl
   let hudTimer = 0;
   let mapTimer = 0;
   let chestTimer = 0;
+  let stepTimer = 0;
   let frames = 0;
   let fpsTime = 0;
   const timer = new THREE.Timer();
@@ -571,6 +626,11 @@ function startGame(name: string, cls: ClassId, saved: ReturnType<typeof OpenWorl
     hero.moving = p.moving;
     hero.setHealth(p.hp, world.maxHp());
     hero.update(dt);
+    stepTimer = p.moving && p.alive ? stepTimer + dt : 0.25;
+    if (stepTimer > 0.32) {
+      stepTimer = 0;
+      audio.play('step');
+    }
 
     // enemies (far ones are hidden and not animated)
     for (const [id, ev] of enemyViews) {
@@ -587,6 +647,19 @@ function startGame(name: string, cls: ClassId, saved: ReturnType<typeof OpenWorl
       ev.view.moving = e.moving;
       ev.view.setHealth(e.hp, e.maxHp);
       ev.view.setAlive(e.alive);
+      // the fallen burn away into embers, and come back whole when they respawn
+      if (!e.alive) {
+        ev.diedAt ??= performance.now();
+        const t = (performance.now() - ev.diedAt - 900) / 1300;
+        if (t > 0) {
+          ev.dissolver ??= new Dissolver(ev.view.root);
+          ev.dissolver.set(Math.min(1, t));
+        }
+      } else if (ev.diedAt !== undefined) {
+        ev.dissolver?.restore();
+        ev.dissolver = undefined;
+        ev.diedAt = undefined;
+      }
       if (e.attackSeq !== ev.seen.attack) {
         ev.view.play(ev.view.attackClip);
         if (e.kind === 'mage') spawnBolt(ev.view.root.position, e.facing, 8, '#b06cff');
@@ -642,6 +715,7 @@ function startGame(name: string, cls: ClassId, saved: ReturnType<typeof OpenWorl
       const mins = Math.floor(t * 24 * 60);
       $('hud-clock').textContent = `${world.isNight() ? '☾' : '☀'} ${String(Math.floor(mins / 60)).padStart(2, '0')}:${String(mins % 60).padStart(2, '0')}`;
       const target = p.alive && !build ? world.interactTarget() : null;
+      r.highlight(target);
       const prompt = $('action-prompt');
       if (p.gather) {
         prompt.hidden = false;
@@ -654,6 +728,9 @@ function startGame(name: string, cls: ClassId, saved: ReturnType<typeof OpenWorl
           ? `${key} — Open chest`
           : `${key} — ${target.node.kind === 'tree' ? 'Chop' : 'Mine'} ${RESOURCES[target.node.kind].name.toLowerCase()} (${ITEMS[RESOURCES[target.node.kind].item].name})`;
       } else prompt.hidden = true;
+      // music: night changes the key, nearby fighting brings in the drums
+      const fighting = [...world.enemies.values()].some((e) => e.alive && e.engaged && Math.hypot(e.x - p.x, e.z - p.z) < 25);
+      audio.setMood(world.isNight(), fighting);
       const respawn = $('respawn');
       respawn.classList.toggle('hidden', p.alive);
       if (!p.alive) $('respawn-time').textContent = String(Math.max(0, Math.ceil((p.respawnAt - Date.now()) / 1000)));
@@ -685,6 +762,7 @@ function startGame(name: string, cls: ClassId, saved: ReturnType<typeof OpenWorl
   (window as unknown as { __world: unknown }).__world = {
     world,
     renderer: r,
+    audio,
     snapshot: () => ({
       x: world.player.x, z: world.player.z, hp: world.player.hp, alive: world.player.alive, gold: world.player.gold,
       inv: { ...world.player.inv }, xp: { ...world.player.xp }, gathering: !!world.player.gather, structures: world.structures.length,

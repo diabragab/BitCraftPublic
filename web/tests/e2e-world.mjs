@@ -95,7 +95,7 @@ async function walkTo(p, tx, tz, done, timeoutMs = 150000) {
   throw new Error(`could not reach (${tx.toFixed(1)}, ${tz.toFixed(1)})`);
 }
 
-async function chopTree(p) {
+async function chopTree(p, onTarget) {
   const tree = await nearestTree(p);
   assert(tree, 'no tree within 120 m of the player');
   const before = (await snap(p)).inv.wood ?? 0;
@@ -105,6 +105,10 @@ async function chopTree(p) {
       return t?.type === 'node' && t.node.id === id;
     }, tree.id),
   );
+  if (onTarget) {
+    await sleep(600); // the HUD refreshes the highlight every 100 ms; frames are slow here
+    await onTarget();
+  }
   await p.keyboard.press('e');
   const end = Date.now() + 60000;
   let s;
@@ -135,7 +139,8 @@ await step('page loads under the strict policy and shows the start screen', asyn
 await step('start a new hero and enter the island', async () => {
   await pg.fill('#hero-name', 'Tester');
   await pg.$eval('.class-card[data-class=knight]', (b) => b.click());
-  await pg.$eval('#new-form', (f) => f.requestSubmit());
+  // a real (trusted) click: browsers only allow sound after a user gesture
+  await pg.click('#btn-new', { timeout: 60000 });
   await pg.waitForSelector('#hud:not(.hidden)', { timeout: 60000 });
   const s = await snap(pg);
   const ruins = await pg.evaluate(() => window.__world.world.gen.ruins.length);
@@ -144,11 +149,27 @@ await step('start a new hero and enter the island', async () => {
   return `${ruins} ruins, ${await pg.evaluate(() => window.__world.world.enemies.size)} skeletons`;
 });
 
-await step('walk to a tree and chop it (+3 wood, woodcutting XP)', async () => {
-  const s = await chopTree(pg);
+await step('sound: the Play click starts the audio and the music plays', async () => {
+  const a0 = await pg.evaluate(() => ({ running: window.__world.audio.running, ...window.__world.audio.stats }));
+  assert(a0.started && a0.running, `audio not running: ${JSON.stringify(a0)}`);
+  await sleep(3000);
+  const a1 = await pg.evaluate(() => window.__world.audio.stats);
+  assert(a1.notes > a0.notes, `no music notes scheduled (${a0.notes} → ${a1.notes})`);
+  return `AudioContext running, ${a1.notes} music notes scheduled, ${a1.sfx} effects so far`;
+});
+
+await step('walk to a tree and chop it (+3 wood, woodcutting XP, outline, chop sounds)', async () => {
+  const sfx0 = await pg.evaluate(() => window.__world.audio.stats.sfx);
+  let outlined = 0;
+  const s = await chopTree(pg, async () => {
+    outlined = Math.max(outlined, await pg.evaluate(() => window.__world.renderer.outline.group.children.length));
+  });
   assert(s.xp.woodcutting > 0, 'no woodcutting XP');
+  assert(outlined > 0, 'the targeted tree was not outlined');
+  const sfx = (await pg.evaluate(() => window.__world.audio.stats.sfx)) - sfx0;
+  assert(sfx >= 3, `only ${sfx} sound effects while walking and chopping`);
   await pg.screenshot({ path: join(out, 'world-chop.png') });
-  return `wood=${s.inv.wood}, woodcutting xp=${s.xp.woodcutting}, at (${s.x.toFixed(0)}, ${s.z.toFixed(0)})`;
+  return `wood=${s.inv.wood}, woodcutting xp=${s.xp.woodcutting}, outline parts=${outlined}, ${sfx} sound effects`;
 });
 
 await step('chop a second tree', async () => {
@@ -195,13 +216,87 @@ await step('progress survives a reload (continue)', async () => {
   await pg.reload();
   await pg.waitForSelector('#screen-start.visible', { timeout: 180000 });
   assert(await pg.isVisible('#continue-box'), 'continue box shown');
-  await pg.$eval('#btn-continue', (b) => b.click());
+  await pg.click('#btn-continue', { timeout: 60000 });
   await pg.waitForSelector('#hud:not(.hidden)');
   const s = await snap(pg);
   assert(s.structures === 1, `structures=${s.structures}`);
   assert(s.xp.woodcutting === before.xp.woodcutting && (s.inv.wood ?? 0) === (before.inv.wood ?? 0), 'inventory/xp kept');
   assert(Math.hypot(s.x - before.x, s.z - before.z) < 2, 'position kept');
   return `wood=${s.inv.wood}, structures=${s.structures}`;
+});
+
+/** Compiles every material in the scene and returns the custom shader keys that were built. */
+const shaderKeys = (p) =>
+  p.evaluate(() => {
+    const r = window.__world.renderer;
+    r.renderer.compile(r.scene, r.camera);
+    r.render();
+    const keys = new Set();
+    for (const prog of r.renderer.info.programs) {
+      for (const k of ['wind', 'grass', 'crystal', 'outline', 'dissolve']) if (prog.cacheKey.includes(k)) keys.add(k);
+      // hand-written shader materials are keyed by a hash of their source, so match their names
+      const named = /^hearthwild-(water|fire)$/.exec(prog.name);
+      if (named) keys.add(named[1]);
+    }
+    return [...keys].sort();
+  });
+
+await step('shader effects compile: water, wind, grass, fire, ore glow', async () => {
+  // a campfire for the fire shader, next to the fence
+  const fire = await pg.evaluate(() => {
+    const w = window.__world.world;
+    w.player.inv.wood = (w.player.inv.wood ?? 0) + 5;
+    w.player.inv.stone = (w.player.inv.stone ?? 0) + 3;
+    for (let a = 0; a < 16; a++) {
+      const x = w.player.x + Math.sin(a) * 4;
+      const z = w.player.z + Math.cos(a) * 4;
+      if (!w.placementProblem('campfire', x, z)) return w.build('campfire', x, z, 0) ?? 'built';
+    }
+    return 'no free spot';
+  });
+  assert(fire === 'built', `campfire: ${fire}`);
+  const grass = await pg.evaluate(() => window.__world.renderer.grass?.count ?? 0);
+  assert(grass > 100, `only ${grass} grass tufts around the player`);
+  let keys = await shaderKeys(pg);
+  for (const k of ['fire', 'grass', 'water', 'wind']) assert(keys.includes(k), `${k} shader not built (built: ${keys})`);
+  await pg.screenshot({ path: join(out, 'world-shaders.png') });
+  // iron only grows on mountains: move the hero next to the nearest vein to see the ore glow
+  const iron = await pg.evaluate(() => {
+    const w = window.__world.world;
+    const n = w.nodesNear(w.player.x, w.player.z, 400).find((x) => x.kind === 'iron' && !w.isDepleted(x.id));
+    if (!n) return null;
+    w.player.x = n.x + 2.5;
+    w.player.z = n.z + 2.5;
+    return { x: n.x, z: n.z };
+  });
+  assert(iron, 'no iron vein within 400 m');
+  const end = Date.now() + 60000;
+  while (Date.now() < end && !(keys = await shaderKeys(pg)).includes('crystal')) await sleep(1000);
+  assert(keys.includes('crystal'), `ore glow not built (built: ${keys})`);
+  await pg.screenshot({ path: join(out, 'world-iron.png') });
+  return `${grass} grass tufts; built: ${keys.join(', ')}`;
+});
+
+await step('a slain skeleton burns away (dissolve shader) with its death sound', async () => {
+  const sfx0 = await pg.evaluate(() => window.__world.audio.stats.sfx);
+  // stage a kill next to the hero through the simulation's own methods
+  await pg.evaluate(() => {
+    const w = window.__world.world;
+    w.addEnemy('minion', 1, w.player.x + 3, w.player.z + 3, w.gen.ruins[0].id);
+    const e = [...w.enemies.values()].at(-1);
+    w.killEnemy(e);
+  });
+  const end = Date.now() + 30000;
+  let dissolving = false;
+  while (Date.now() < end && !dissolving) {
+    await sleep(1000);
+    dissolving = (await shaderKeys(pg)).includes('dissolve');
+  }
+  assert(dissolving, 'no dissolve material on the fallen skeleton');
+  await pg.screenshot({ path: join(out, 'world-dissolve.png') });
+  const sfx = (await pg.evaluate(() => window.__world.audio.stats.sfx)) - sfx0;
+  assert(sfx >= 1, 'no sound for the kill');
+  return `dissolve shader active, ${sfx} sound effect(s)`;
 });
 
 await step('no errors or CSP violations on desktop', async () => {

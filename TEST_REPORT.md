@@ -77,20 +77,31 @@ After the PR-review fixes the suite was run twice in a row: 17/17 both times. Ou
 
 ### Hearthwild open world — `npm run test:world`
 
-Serves the published page form (`artifact.html` wrapped in a bare document) under the strict policy and plays the core loop:
+Serves the published page form (`artifact.html` wrapped in a bare document) under the strict policy and plays the core loop. Output after adding sound and the shader effects:
 ```
 ✔ page loads under the strict policy and shows the start screen
 ✔ start a new hero and enter the island — 10 ruins, 49 skeletons
-✔ walk to a tree and chop it (+3 wood, woodcutting XP) — wood=3, woodcutting xp=24
+✔ sound: the Play click starts the audio and the music plays — AudioContext running, 3 music notes scheduled, 0 effects so far
+✔ walk to a tree and chop it (+3 wood, woodcutting XP, outline, chop sounds) — wood=3, woodcutting xp=24, outline parts=1, 10 sound effects
 ✔ chop a second tree — wood=6
 ✔ craft two planks from the crafting panel — planks=2, wood left=2
 ✔ build a wooden fence through the build panel — construction xp=5
 ✔ progress survives a reload (continue) — wood=2, structures=1
+✔ shader effects compile: water, wind, grass, fire, ore glow — 2614 grass tufts; built: crystal, fire, grass, water, wind
+✔ a slain skeleton burns away (dissolve shader) with its death sound — dissolve shader active, 7 sound effect(s)
 ✔ no errors or CSP violations on desktop
-✔ phone: joystick moves the hero, the ✋ button gathers — moved 6.7 m, gathering started
-9/9 steps passed.
+✔ phone: joystick moves the hero, the ✋ button gathers — moved 7.1 m, gathering started
+12/12 steps passed.
 ```
-Not covered by automation yet: combat at ruins, chests, night spawns, iron/forge recipes and houses (the rules for these are in `sim.ts` and reachable in play). Measured at the village: 99 draw calls.
+How these were tested, and the limits:
+
+- **Sound:** the game is started with a real (trusted) click, and the test checks that the browser's audio context is running and counts the scheduled notes and effects. Nobody listened to it: the test is headless with no speakers, so how it sounds is unverified.
+- **Shaders:** "compile" means three.js built a program for each effect and no WebGL errors were logged. Two staged setups were needed:
+  - The ore-glow step moves the hero next to an iron vein, because none grow near the village.
+  - The dissolve step spawns and kills a skeleton through the simulation's internal methods, so it doesn't depend on a fight going a particular way.
+- **Visual check:** water, outline, ore glow, x-ray behind a house, grass, night fire and a skeleton mid-dissolve were all checked in screenshots. Motion (wind, flames) can't be judged from stills at the 0.5–2 FPS of software rendering.
+
+Not covered by automation yet: real fights at ruins, chests, night spawns, iron/forge recipes and houses. The rules for these are in `sim.ts` and are reachable in play. Measured at the village before the effects: 99 draw calls. The effects add about four (water, grass, flames, outline) plus one per hero mesh for the x-ray.
 
 ### Single-player arena page — `npm run test:offline`
 
@@ -132,6 +143,9 @@ The multiplayer E2E suite was re-run after the backend refactor: 17/17. The page
 | PR review (Codex) | Account DB created with umask permissions (hashes readable by other local users) | Data dir 0700, `accounts.sqlite` 0600, also applied to existing installs (tested) |
 | E2E regression run | Enemies had no obstacle avoidance and could stall on a tree just outside their attack range, making fights (and the combat test) depend on where they snagged | `ArenaMap::steer` tries rotated directions when the direct step is blocked (unit test: gets around a tree); the test's chase loop side-steps when blocked |
 | PR review (Codex) | Failed session authorization left the new account behind ("username taken" on retry) | Registration rolled back on that path (tested; both new tests fail on the old code) |
+| Screenshot review (shaders) | Half the grass blades were black: a double-sided material flips the normal of back faces, so they were lit from below | Each blade is two triangles of opposite winding, single-sided |
+| Screenshot review (shaders) | Campfire flames were pale squares: an alpha bias added in the port kept the quad corners opaque | Alpha erosion now matches the original (`noise × mask − age`); flames sit on top of the log pile and skip tone mapping |
+| Screenshot review (shaders) | A felled tree kept its outline until the next HUD refresh | The outline is cleared whenever resource nodes change |
 
 ## 4. Not verified here (needs real hardware / hosting)
 

@@ -85,10 +85,19 @@ A BitCraft-style sandbox with original rules, names and CC0 art. It plays in the
 - **Skills:** woodcutting, mining, combat, crafting and construction, from 1 to 50, with speed and damage bonuses and unlocks.
 - **Danger:** a day/night cycle with night-time skeleton wanderers. Ruins get more dangerous the farther they are from the village.
 - **Saving:** progress is kept in the browser (`localStorage`).
+- **Sound and music:** all synthesized in the browser with the Web Audio API, so there are no audio files. Music changes key and tempo between day and night, and drums come in when skeletons are hunting you nearby. Ambience is wind with birds by day and crickets at night. There are sound effects for chopping, mining, combat, loot, crafting, building, level-ups and footsteps, and volume sliders in the menu.
+- **Shader effects**, ported from [GDQuest's Godot Shaders](https://github.com/gdquest-demos/godot-shaders) (MIT):
+  - water that shades from shallow to deep, with foam along the shore;
+  - trees and grass that sway in the wind, with grass that bends away from the hero;
+  - stylized campfire flames;
+  - slain skeletons that burn away;
+  - an outline on whatever **E** would use;
+  - glowing iron veins;
+  - an x-ray silhouette of the hero when trees or buildings hide them.
 
 Controls: WASD to move, click or Space to attack, **E** to gather or open, Q for a potion, I/C/B/K/M for the inventory, crafting, build, skills and map panels. On phones: joystick, ⚔, ✋ and 🧪.
 
-Code is in `web/client/src/openworld/`: `terrain.ts` (world generation), `sim.ts` (rules), `render.ts` (chunks, instancing, day/night), `main.ts` (UI). Run it with `npm run dev`, then open `/world.html`. Test it with `npm run test:world`.
+Code is in `web/client/src/openworld/`: `terrain.ts` (world generation), `sim.ts` (rules), `render.ts` (chunks, instancing, day/night), `shaders.ts` (the effects), `main.ts` (UI). The audio engine is `web/client/src/audio.ts`. Run it with `npm run dev`, then open `/world.html`. Test it with `npm run test:world`.
 
 ### Single-player page (no server)
 

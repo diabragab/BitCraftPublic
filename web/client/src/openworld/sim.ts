@@ -72,6 +72,8 @@ export type WorldEvent =
   | { type: 'float'; x: number; z: number; text: string; style: '' | 'crit' | 'player' | 'heal' | 'gain' }
   | { type: 'feed'; text: string }
   | { type: 'toast'; text: string }
+  /** One-shot sound cues the rules know about (positions let the audio fade distant sounds). */
+  | { type: 'sound'; name: 'craft' | 'build' | 'loot' | 'enemy-death'; x: number; z: number }
   | { type: 'level'; skill: SkillId; level: number }
   | { type: 'resources' }
   | { type: 'structures' }
@@ -447,6 +449,7 @@ export class OpenWorld {
     this.give(r.output, r.count);
     this.addXp('crafting', r.xp);
     this.onEvent({ type: 'toast', text: `Crafted ${ITEMS[r.output].name}` });
+    this.onEvent({ type: 'sound', name: 'craft', x: this.player.x, z: this.player.z });
     return null;
   }
 
@@ -459,6 +462,7 @@ export class OpenWorld {
     if (def.respawn) this.player.home = { x, z };
     this.addXp('construction', def.xp);
     this.onEvent({ type: 'structures' });
+    this.onEvent({ type: 'sound', name: 'build', x, z });
     this.onEvent({ type: 'feed', text: `Built a ${def.name.toLowerCase()}${def.respawn ? ' (new respawn point)' : ''}` });
     this.save();
     return null;
@@ -494,6 +498,7 @@ export class OpenWorld {
     const text = `Chest: +${gold} gold, ${Object.entries(loot).map(([i, n]) => `${n} ${ITEMS[i as ItemId].name.toLowerCase()}`).join(', ')}`;
     this.onEvent({ type: 'feed', text });
     this.onEvent({ type: 'float', x: ruin.chest.x, z: ruin.chest.z, text: `+${gold} gold`, style: 'gain' });
+    this.onEvent({ type: 'sound', name: 'loot', x: ruin.chest.x, z: ruin.chest.z });
     this.save();
     return null;
   }
@@ -527,6 +532,7 @@ export class OpenWorld {
       extra = ', a health potion';
     }
     this.addXp('combat', st.xp * e.level);
+    this.onEvent({ type: 'sound', name: 'enemy-death', x: e.x, z: e.z });
     this.onEvent({ type: 'feed', text: `Defeated a level ${e.level} skeleton ${e.kind}: +${gold} gold, ${bones} bone${bones > 1 ? 's' : ''}${extra}` });
     if (!e.ruin) {
       // night wanderers do not come back

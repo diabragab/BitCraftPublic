@@ -15,6 +15,16 @@ CC0 does not require attribution; it is given anyway, as the author requests. Th
 
 Support the author: <http://patreon.com/kaylousberg>.
 
+## Shader code: GDQuest "Godot Shaders" (MIT)
+
+The effects in `web/client/src/openworld/shaders.ts` are ports, from Godot's shading language to three.js GLSL, of shaders in [gdquest-demos/godot-shaders](https://github.com/gdquest-demos/godot-shaders) @ `05a3931acc85513b67b80b6e88671a596a3f9693`: `water_3d`, `foliage_wind_tree_leaves`/`_trunk`, `wind_grass`, `dissolve`, `stylized_fire` (itself based on Minionsart's stylized fire), `outline3D` with its smooth-normals variant, `fresnel_crystal` and the x-ray idea of `xray_3d_mask`/`xray_glow`. Their source code is MIT-licensed, Copyright (c) 2020-present GDQuest. The licence text sits next to the code in `shaders.LICENSE.txt` and the copyright line is kept in the shipped JavaScript.
+
+That repository's **art** (textures, models) is CC-BY-NC-SA 4.0, a non-commercial licence, and **none of it is used**. Every noise texture the shaders read is generated in code at runtime.
+
+## Audio
+
+There are no audio files. The music, ambience and sound effects are synthesized at runtime by `web/client/src/audio.ts` (Web Audio API) and are original to this project.
+
 ## Software
 
 | Component | License |
@@ -29,5 +39,7 @@ Support the author: <http://patreon.com/kaylousberg>.
 | Playwright 1.56 (tests only) | Apache 2.0 |
 
 ## Not used
+
+The Quaternius packs requested for Hearthwild have not been imported, because quaternius.com, itch.io and OpenGameArt cannot be reached from the build machine. See `web/vendor/quaternius/README.md` for how to add them. The packs are Universal Animation Library 2, the Bestiary Dungeon Monsters Kit, Universal Base Characters, Modular Character Outfits Fantasy and the Stylized Nature MegaKit.
 
 No BitCraft art, audio, world data, names or logos are used by the web prototype. The `images/` folder (BitCraft logos) belongs to the upstream README only and is governed by the BitCraft Community License in `NOTICE`.
