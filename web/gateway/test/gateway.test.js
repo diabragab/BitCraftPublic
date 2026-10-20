@@ -7,7 +7,7 @@ import { dirname, join } from 'node:path';
 import { AccountStore, validateCredentials } from '../src/accounts.js';
 import { proxyRule } from '../src/proxy.js';
 import { SpacetimeClient } from '../src/spacetime.js';
-import { createGateway } from '../src/server.js';
+import { clientAddress, createGateway } from '../src/server.js';
 
 const IDENTITY = 'c2'.padEnd(64, '0');
 
@@ -45,6 +45,14 @@ test('account database is private to the gateway user', () => {
   assert.equal(statSync(join(dir, 'accounts.sqlite')).mode & 0o777, 0o600);
   store.close();
   rmSync(dirname(dir), { recursive: true, force: true });
+});
+
+test('client address behind a proxy cannot be forged', () => {
+  const req = (headers) => ({ headers, socket: { remoteAddress: '127.0.0.1' } });
+  assert.equal(clientAddress(req({ 'x-forwarded-for': '6.6.6.6' }), false), '127.0.0.1', 'headers ignored unless TRUST_PROXY');
+  assert.equal(clientAddress(req({ 'cf-connecting-ip': '203.0.113.9', 'x-forwarded-for': '6.6.6.6, 203.0.113.9' }), true), '203.0.113.9');
+  assert.equal(clientAddress(req({ 'x-forwarded-for': '6.6.6.6, 198.51.100.7' }), true), '198.51.100.7', 'right-most (proxy-added) entry');
+  assert.equal(clientAddress(req({}), true), '127.0.0.1');
 });
 
 test('proxy only exposes client endpoints', () => {

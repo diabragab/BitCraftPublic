@@ -15,7 +15,8 @@
     "build": "npm run build -w client",
     "start": "bash scripts/start.sh",
     "test": "npm test -w gateway && npm run test:e2e",
-    "test:e2e": "npm run build && node tests/e2e.mjs"
+    "test:e2e": "npm run build && node tests/e2e.mjs",
+    "tunnel": "bash scripts/tunnel.sh"
   },
   "devDependencies": {
     "@gltf-transform/core": "4.1.1",

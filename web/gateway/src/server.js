@@ -52,6 +52,22 @@ async function readJson(req, limit = 16 * 1024) {
   }
 }
 
+/**
+ * The visitor's address for rate limiting and logs. Behind a trusted proxy (TRUST_PROXY=1) it is
+ * Cloudflare's CF-Connecting-IP, or else the right-most X-Forwarded-For entry: the one the proxy
+ * appended itself. Left-most entries are whatever the client sent and could be forged.
+ */
+export function clientAddress(req, trustProxy) {
+  if (trustProxy) {
+    const cf = req.headers['cf-connecting-ip'];
+    if (typeof cf === 'string' && cf.trim()) return cf.trim();
+    const xff = req.headers['x-forwarded-for'];
+    const last = typeof xff === 'string' ? xff.split(',').pop().trim() : '';
+    if (last) return last;
+  }
+  return req.socket.remoteAddress || 'unknown';
+}
+
 function send(res, status, body, extra = {}) {
   const data = JSON.stringify(body);
   res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', ...extra });
@@ -72,8 +88,7 @@ export async function createGateway(config, { accounts, spacetime } = {}) {
     log('error', 'could not obtain gateway identity; is SpacetimeDB running?', { error: e.message });
   }
 
-  const clientIp = (req) =>
-    (config.trustProxy && req.headers['x-forwarded-for']?.split(',')[0].trim()) || req.socket.remoteAddress || 'unknown';
+  const clientIp = (req) => clientAddress(req, config.trustProxy);
 
   function originAllowed(req) {
     const origin = req.headers.origin;

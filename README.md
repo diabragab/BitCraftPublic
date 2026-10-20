@@ -74,6 +74,18 @@ Controls: **WASD/arrows** move, **click/Space** attack (mouse aims), **Q** potio
 
 Documentation: [PROJECT_AUDIT.md](./PROJECT_AUDIT.md) · [IMPLEMENTATION_PLAN.md](./IMPLEMENTATION_PLAN.md) · [ARCHITECTURE.md](./ARCHITECTURE.md) · [TEST_REPORT.md](./TEST_REPORT.md) · [KAYKIT_ASSET_INVENTORY.md](./KAYKIT_ASSET_INVENTORY.md) · [ASSET_CREDITS.md](./ASSET_CREDITS.md)
 
+### Share a public test link from your computer
+
+Uses a free [Cloudflare quick tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/do-more-with-tunnels/trycloudflare/) (no account). It only exposes the gateway; SpacetimeDB stays on localhost.
+
+1. Install `cloudflared` (macOS `brew install cloudflared`, Windows `winget install --id Cloudflare.cloudflared`, Linux/WSL: [release binary](https://github.com/cloudflare/cloudflared/releases)).
+2. Put `TRUST_PROXY=1` in `web/.env`, so login rate limits apply per visitor.
+3. Terminal 1: `spacetime start --listen-addr 127.0.0.1:3000`
+4. Terminal 2 (in `web/`): `npm start`
+5. Terminal 3 (in `web/`): `npm run tunnel`, then share the printed `https://….trycloudflare.com` address.
+
+The link stays the same while the tunnel runs, so to update the game run `git pull` and restart `npm start` in terminal 2. The link stops working when you close the tunnel or your computer sleeps. For an always-on server, see the deployment section of [ARCHITECTURE.md](./ARCHITECTURE.md).
+
 ### Building the original BitCraft server modules locally
 
 ```bash
