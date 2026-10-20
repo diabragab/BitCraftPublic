@@ -93,6 +93,8 @@ Serves the published page form (`artifact.html` wrapped in a bare document) unde
 ✔ phone: joystick moves the hero, the ✋ button gathers — moved 7.1 m, gathering started
 12/12 steps passed.
 ```
+On the final build the suite ran four times: three runs passed 12/12, and one passed 11/12. The output of that run was cut to its last lines, so which step failed was not recorded. Walking steps under software rendering are the likeliest cause, but that is unconfirmed.
+
 How these were tested, and the limits:
 
 - **Sound:** the game is started with a real (trusted) click, and the test checks that the browser's audio context is running and counts the scheduled notes and effects. Nobody listened to it: the test is headless with no speakers, so how it sounds is unverified.

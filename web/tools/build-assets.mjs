@@ -167,6 +167,9 @@ mkdirSync(join(out, 'licenses'), { recursive: true });
   copyFileSync(h('LICENSE.txt'), join(out, 'licenses', 'KayKit-Medieval-Hexagon-Pack-1.0.LICENSE.txt'));
 }
 
+// Shader code ported from GDQuest's Godot Shaders (MIT): its licence ships with the assets too
+copyFileSync(new URL('../client/src/openworld/shaders.LICENSE.txt', import.meta.url), join(out, 'licenses', 'GDQuest-godot-shaders.LICENSE.txt'));
+
 writeFileSync(join(out, 'manifest.json'), JSON.stringify(manifest, null, 2));
 const total = manifest.files.reduce((s, f) => s + f.bytes, 0);
 console.log(`Wrote ${manifest.files.length} assets, ${(total / 1024 / 1024).toFixed(2)} MiB total -> ${out}`);

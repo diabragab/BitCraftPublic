@@ -1,7 +1,8 @@
 /*!
  * Hearthwild shader effects, ported to three.js from GDQuest's "Godot Shaders" demos:
  * https://github.com/gdquest-demos/godot-shaders (commit 05a3931)
- * Copyright (c) 2020-present GDQuest. MIT License, see shaders.LICENSE.txt.
+ * Copyright (c) 2020-present GDQuest. MIT License: the full text is in shaders.LICENSE.txt and
+ * ships as assets/licenses/GDQuest-godot-shaders.LICENSE.txt.
  * Only the shader code was ported. The demos' textures and models are CC-BY-NC-SA and
  * are not used: every noise texture here is generated at runtime.
  */

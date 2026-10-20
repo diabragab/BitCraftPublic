@@ -17,7 +17,7 @@ Support the author: <http://patreon.com/kaylousberg>.
 
 ## Shader code: GDQuest "Godot Shaders" (MIT)
 
-The effects in `web/client/src/openworld/shaders.ts` are ports, from Godot's shading language to three.js GLSL, of shaders in [gdquest-demos/godot-shaders](https://github.com/gdquest-demos/godot-shaders) @ `05a3931acc85513b67b80b6e88671a596a3f9693`: `water_3d`, `foliage_wind_tree_leaves`/`_trunk`, `wind_grass`, `dissolve`, `stylized_fire` (itself based on Minionsart's stylized fire), `outline3D` with its smooth-normals variant, `fresnel_crystal` and the x-ray idea of `xray_3d_mask`/`xray_glow`. Their source code is MIT-licensed, Copyright (c) 2020-present GDQuest. The licence text sits next to the code in `shaders.LICENSE.txt` and the copyright line is kept in the shipped JavaScript.
+The effects in `web/client/src/openworld/shaders.ts` are ports, from Godot's shading language to three.js GLSL, of shaders in [gdquest-demos/godot-shaders](https://github.com/gdquest-demos/godot-shaders) @ `05a3931acc85513b67b80b6e88671a596a3f9693`: `water_3d`, `foliage_wind_tree_leaves`/`_trunk`, `wind_grass`, `dissolve`, `stylized_fire` (itself based on Minionsart's stylized fire), `outline3D` with its smooth-normals variant, `fresnel_crystal` and the x-ray idea of `xray_3d_mask`/`xray_glow`. Their source code is MIT-licensed, Copyright (c) 2020-present GDQuest. The licence text sits next to the code in `shaders.LICENSE.txt` and ships with the game as `assets/licenses/GDQuest-godot-shaders.LICENSE.txt`, and the copyright line is kept in the shipped JavaScript.
 
 That repository's **art** (textures, models) is CC-BY-NC-SA 4.0, a non-commercial licence, and **none of it is used**. Every noise texture the shaders read is generated in code at runtime.
 
