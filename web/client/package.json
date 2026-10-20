@@ -1,0 +1,21 @@
+{
+  "name": "kaykit-arena-client",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "generate": "spacetime generate --lang typescript --out-dir src/module_bindings --module-path ../arena-module"
+  },
+  "dependencies": {
+    "spacetimedb": "2.10.0",
+    "three": "0.186.0"
+  },
+  "devDependencies": {
+    "@types/three": "0.186.0",
+    "typescript": "5.9.3",
+    "vite": "7.1.12"
+  }
+}

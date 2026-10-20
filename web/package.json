@@ -1,0 +1,26 @@
+{
+  "name": "kaykit-arena-web",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Browser client + gateway for a SpacetimeDB-backed arena prototype built next to the BitCraft server code",
+  "type": "module",
+  "workspaces": [
+    "client",
+    "gateway"
+  ],
+  "scripts": {
+    "assets": "node tools/build-assets.mjs",
+    "map": "node shared/generate-map.mjs",
+    "dev": "bash scripts/dev.sh",
+    "build": "npm run build -w client",
+    "start": "bash scripts/start.sh",
+    "test": "npm test -w gateway && npm run test:e2e",
+    "test:e2e": "npm run build && node tests/e2e.mjs"
+  },
+  "devDependencies": {
+    "@gltf-transform/core": "4.1.1",
+    "@gltf-transform/extensions": "4.1.1",
+    "@gltf-transform/functions": "4.1.1",
+    "playwright": "1.56.1"
+  }
+}

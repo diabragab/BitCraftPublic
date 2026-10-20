@@ -1,0 +1,309 @@
+{
+  "generated": "2026-10-20T21:49:04.646Z",
+  "packs": {
+    "adventurers": {
+      "repo": "KayKit-Character-Pack-Adventures-1.0",
+      "sha": "672074b73ba276876a19e8816ecdc5241817ab47",
+      "root": "addons/kaykit_character_pack_adventures"
+    },
+    "skeletons": {
+      "repo": "KayKit-Character-Pack-Skeletons-1.0",
+      "sha": "15b62b9bad122f72926c10fb14d622c73819fa54",
+      "root": "addons/kaykit_character_pack_skeletons"
+    },
+    "dungeon": {
+      "repo": "KayKit-Dungeon-Remastered-1.0",
+      "sha": "b0ca9bd96a8072ab36a3a5464f00ed1e06a16d07",
+      "root": "addons/kaykit_dungeon_remastered"
+    },
+    "hexagon": {
+      "repo": "KayKit-Medieval-Hexagon-Pack-1.0",
+      "sha": "84fa4e91af6a88989be7c99e0891cede11f2ca38",
+      "root": "addons/kaykit_medieval_hexagon_pack"
+    }
+  },
+  "files": [
+    {
+      "pack": "adventurers",
+      "source": "Characters/gltf/Knight.glb",
+      "output": "characters/knight.glb",
+      "bytes": 521024
+    },
+    {
+      "pack": "adventurers",
+      "source": "Characters/gltf/Barbarian.glb",
+      "output": "characters/barbarian.glb",
+      "bytes": 509180
+    },
+    {
+      "pack": "adventurers",
+      "source": "Characters/gltf/Mage.glb",
+      "output": "characters/mage.glb",
+      "bytes": 504240
+    },
+    {
+      "pack": "adventurers",
+      "source": "Characters/gltf/Rogue.glb",
+      "output": "characters/rogue.glb",
+      "bytes": 492028
+    },
+    {
+      "pack": "skeletons",
+      "source": "Characters/gltf/Skeleton_Minion.glb",
+      "output": "characters/skeleton_minion.glb",
+      "bytes": 586804
+    },
+    {
+      "pack": "skeletons",
+      "source": "Characters/gltf/Skeleton_Warrior.glb",
+      "output": "characters/skeleton_warrior.glb",
+      "bytes": 618268
+    },
+    {
+      "pack": "skeletons",
+      "source": "Characters/gltf/Skeleton_Rogue.glb",
+      "output": "characters/skeleton_rogue.glb",
+      "bytes": 592300
+    },
+    {
+      "pack": "skeletons",
+      "source": "Characters/gltf/Skeleton_Mage.glb",
+      "output": "characters/skeleton_mage.glb",
+      "bytes": 554464
+    },
+    {
+      "pack": "skeletons",
+      "source": "Assets/gltf/Skeleton_Blade.gltf",
+      "output": "weapons/skeleton_blade.glb",
+      "bytes": 32176
+    },
+    {
+      "pack": "skeletons",
+      "source": "Assets/gltf/Skeleton_Axe.gltf",
+      "output": "weapons/skeleton_axe.glb",
+      "bytes": 35640
+    },
+    {
+      "pack": "skeletons",
+      "source": "Assets/gltf/Skeleton_Staff.gltf",
+      "output": "weapons/skeleton_staff.glb",
+      "bytes": 65308
+    },
+    {
+      "pack": "skeletons",
+      "source": "Assets/gltf/Skeleton_Shield_Small_A.gltf",
+      "output": "weapons/skeleton_shield_small_a.glb",
+      "bytes": 33280
+    },
+    {
+      "pack": "dungeon",
+      "source": "Assets/gltf/floor_tile_large.gltf.glb",
+      "output": "dungeon/floor_tile_large.glb",
+      "bytes": 23880
+    },
+    {
+      "pack": "dungeon",
+      "source": "Assets/gltf/floor_dirt_large.gltf.glb",
+      "output": "dungeon/floor_dirt_large.glb",
+      "bytes": 21892
+    },
+    {
+      "pack": "dungeon",
+      "source": "Assets/gltf/floor_tile_large_rocks.gltf.glb",
+      "output": "dungeon/floor_tile_large_rocks.glb",
+      "bytes": 30248
+    },
+    {
+      "pack": "dungeon",
+      "source": "Assets/gltf/wall.gltf.glb",
+      "output": "dungeon/wall.glb",
+      "bytes": 40392
+    },
+    {
+      "pack": "dungeon",
+      "source": "Assets/gltf/wall_cracked.gltf.glb",
+      "output": "dungeon/wall_cracked.glb",
+      "bytes": 86300
+    },
+    {
+      "pack": "dungeon",
+      "source": "Assets/gltf/pillar.gltf.glb",
+      "output": "dungeon/pillar.glb",
+      "bytes": 22904
+    },
+    {
+      "pack": "dungeon",
+      "source": "Assets/gltf/column.gltf.glb",
+      "output": "dungeon/column.glb",
+      "bytes": 19396
+    },
+    {
+      "pack": "dungeon",
+      "source": "Assets/gltf/barrel_large.gltf.glb",
+      "output": "dungeon/barrel_large.glb",
+      "bytes": 34652
+    },
+    {
+      "pack": "dungeon",
+      "source": "Assets/gltf/barrel_small_stack.gltf.glb",
+      "output": "dungeon/barrel_small_stack.glb",
+      "bytes": 65900
+    },
+    {
+      "pack": "dungeon",
+      "source": "Assets/gltf/box_large.gltf.glb",
+      "output": "dungeon/box_large.glb",
+      "bytes": 24848
+    },
+    {
+      "pack": "dungeon",
+      "source": "Assets/gltf/box_stacked.gltf.glb",
+      "output": "dungeon/box_stacked.glb",
+      "bytes": 99392
+    },
+    {
+      "pack": "dungeon",
+      "source": "Assets/gltf/crates_stacked.gltf.glb",
+      "output": "dungeon/crates_stacked.glb",
+      "bytes": 70856
+    },
+    {
+      "pack": "dungeon",
+      "source": "Assets/gltf/chest_gold.glb",
+      "output": "dungeon/chest_gold.glb",
+      "bytes": 75120
+    },
+    {
+      "pack": "dungeon",
+      "source": "Assets/gltf/coin_stack_small.gltf.glb",
+      "output": "dungeon/coin_stack_small.glb",
+      "bytes": 31288
+    },
+    {
+      "pack": "dungeon",
+      "source": "Assets/gltf/bottle_A_green.gltf.glb",
+      "output": "dungeon/bottle_A_green.glb",
+      "bytes": 22824
+    },
+    {
+      "pack": "dungeon",
+      "source": "Assets/gltf/torch_lit.gltf.glb",
+      "output": "dungeon/torch_lit.glb",
+      "bytes": 25304
+    },
+    {
+      "pack": "dungeon",
+      "source": "Assets/gltf/banner_patternA_red.gltf.glb",
+      "output": "dungeon/banner_patternA_red.glb",
+      "bytes": 22400
+    },
+    {
+      "pack": "dungeon",
+      "source": "Assets/gltf/banner_shield_red.gltf.glb",
+      "output": "dungeon/banner_shield_red.glb",
+      "bytes": 41620
+    },
+    {
+      "pack": "dungeon",
+      "source": "Assets/gltf/rubble_half.gltf.glb",
+      "output": "dungeon/rubble_half.glb",
+      "bytes": 31824
+    },
+    {
+      "pack": "dungeon",
+      "source": "Assets/gltf/table_medium_decorated_A.gltf.glb",
+      "output": "dungeon/table_medium_decorated_A.glb",
+      "bytes": 55928
+    },
+    {
+      "pack": "dungeon",
+      "source": "Assets/gltf/keg_decorated.gltf.glb",
+      "output": "dungeon/keg_decorated.glb",
+      "bytes": 93640
+    },
+    {
+      "pack": "dungeon",
+      "source": "Assets/gltf/sword_shield.gltf.glb",
+      "output": "dungeon/sword_shield.glb",
+      "bytes": 36616
+    },
+    {
+      "pack": "dungeon",
+      "source": "Assets/gltf/candle_triple.gltf.glb",
+      "output": "dungeon/candle_triple.glb",
+      "bytes": 23992
+    },
+    {
+      "pack": "dungeon",
+      "source": "Assets/gltf/trunk_large_A.gltf.glb",
+      "output": "dungeon/trunk_large_A.glb",
+      "bytes": 25728
+    },
+    {
+      "pack": "hexagon",
+      "source": "Assets/gltf/decoration/nature/trees_A_large.gltf",
+      "output": "nature/trees_A_large.glb",
+      "bytes": 54952
+    },
+    {
+      "pack": "hexagon",
+      "source": "Assets/gltf/decoration/nature/trees_A_medium.gltf",
+      "output": "nature/trees_A_medium.glb",
+      "bytes": 38244
+    },
+    {
+      "pack": "hexagon",
+      "source": "Assets/gltf/decoration/nature/trees_B_large.gltf",
+      "output": "nature/trees_B_large.glb",
+      "bytes": 53312
+    },
+    {
+      "pack": "hexagon",
+      "source": "Assets/gltf/decoration/nature/tree_single_A.gltf",
+      "output": "nature/tree_single_A.glb",
+      "bytes": 19556
+    },
+    {
+      "pack": "hexagon",
+      "source": "Assets/gltf/decoration/nature/tree_single_B.gltf",
+      "output": "nature/tree_single_B.glb",
+      "bytes": 22464
+    },
+    {
+      "pack": "hexagon",
+      "source": "Assets/gltf/decoration/nature/rock_single_A.gltf",
+      "output": "nature/rock_single_A.glb",
+      "bytes": 18164
+    },
+    {
+      "pack": "hexagon",
+      "source": "Assets/gltf/decoration/nature/rock_single_B.gltf",
+      "output": "nature/rock_single_B.glb",
+      "bytes": 18436
+    },
+    {
+      "pack": "hexagon",
+      "source": "Assets/gltf/decoration/nature/rock_single_C.gltf",
+      "output": "nature/rock_single_C.glb",
+      "bytes": 18824
+    },
+    {
+      "pack": "hexagon",
+      "source": "Assets/gltf/decoration/nature/hills_A_trees.gltf",
+      "output": "nature/hills_A_trees.glb",
+      "bytes": 37932
+    },
+    {
+      "pack": "hexagon",
+      "source": "Assets/gltf/decoration/nature/mountain_A_grass_trees.gltf",
+      "output": "nature/mountain_A_grass_trees.glb",
+      "bytes": 35512
+    },
+    {
+      "pack": "hexagon",
+      "source": "Assets/gltf/decoration/nature/mountain_B_grass_trees.gltf",
+      "output": "nature/mountain_B_grass_trees.glb",
+      "bytes": 39372
+    }
+  ]
+}

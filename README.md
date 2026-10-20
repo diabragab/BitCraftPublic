@@ -45,6 +45,45 @@ In this first phase we are only open sourcing the server side code. You can read
 - [Open Sourcing BitCraft Online](https://bitcraftonline.com/news/open-sourcing-bitcraft-online)
 - [BitCraft Open Sourcing Update](https://bitcraftonline.com/news/bitcraft-open-sourcing-update)
 
+## Web prototype in this fork: KayKit Arena (`web/`)
+
+> **Not BitCraft, and not affiliated with Clockwork Labs.** The BitCraft client is closed source and the game's static data is not public, so the real game cannot be played from this repository (details in [PROJECT_AUDIT.md](./PROJECT_AUDIT.md)). `web/` adds a separate, original, browser-playable multiplayer prototype built on the **same server stack** (SpacetimeDB 2.10, Rust module, server-authoritative reducers and scheduled agents, external login service), with free CC0 [KayKit](https://github.com/KayKit-Game-Assets) art.
+
+| | |
+|---|---|
+| What you get | Top-down 3D action RPG: 4 hero classes, skeleton enemies with AI, melee + ranged combat, health, death/respawn, potions and gold, leaderboard, login/registration, HUD, minimap, keyboard/mouse and mobile touch controls, live multiplayer. |
+| Server | `web/arena-module` (SpacetimeDB module) + `web/gateway` (Node: REST auth, health, static hosting, allow-listed WebSocket proxy) |
+| Client | `web/client` (TypeScript, Vite, three.js, SpacetimeDB SDK) |
+
+### Quick start
+
+Prerequisites: Node.js ≥ 22.13, Rust with `rustup target add wasm32-unknown-unknown`, and the [SpacetimeDB CLI 2.10.x](https://spacetimedb.com/install).
+
+```bash
+cd web
+npm install
+spacetime login --server-issued-login local   # once: an identity for your local SpacetimeDB
+npm run dev      # starts SpacetimeDB (if needed), publishes the module, runs the gateway + Vite → http://127.0.0.1:5173
+# or
+npm start        # production-style: builds the client and serves everything from the gateway → http://127.0.0.1:8080
+```
+
+Health check: `curl http://127.0.0.1:8080/api/health`. Tests: `npm test` in `web/` (gateway unit + integration tests, then the browser end-to-end test), `cargo test` in `web/arena-module`.
+
+Controls: **WASD/arrows** move, **click/Space** attack (mouse aims), **Q** potion, **I** inventory, **L** leaderboard, **Esc** menu. On phones: left virtual joystick, ⚔ attack (auto-aims), 🧪 potion.
+
+Documentation: [PROJECT_AUDIT.md](./PROJECT_AUDIT.md) · [IMPLEMENTATION_PLAN.md](./IMPLEMENTATION_PLAN.md) · [ARCHITECTURE.md](./ARCHITECTURE.md) · [TEST_REPORT.md](./TEST_REPORT.md) · [KAYKIT_ASSET_INVENTORY.md](./KAYKIT_ASSET_INVENTORY.md) · [ASSET_CREDITS.md](./ASSET_CREDITS.md)
+
+### Building the original BitCraft server modules locally
+
+```bash
+cd BitCraftServer/packages/game && spacetime build          # ~5 min, produces target/wasm32-unknown-unknown/release/bitcraft_spacetimedb.wasm
+spacetime publish -s local --bin-path target/wasm32-unknown-unknown/release/bitcraft_spacetimedb.wasm bitcraft-local-1
+cd ../global_module && spacetime build && spacetime publish -s local bitcraft-local-global
+```
+
+This was verified to build, publish and run `init` / `generate_flat_world`; gameplay needs the unpublished static data. Keep such databases on localhost: with the default `dev` config every identity has admin rights.
+
 ## About BitCraft
 
 BitCraft is a community-driven MMORPG where players collaborate to shape a procedurally generated world. There are no fixed classes or roles — instead, players build, craft, explore, trade,

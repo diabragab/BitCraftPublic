@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+    <meta name="theme-color" content="#1b1622" />
+    <meta name="description" content="KayKit Arena: a multiplayer top-down action RPG prototype running on SpacetimeDB." />
+    <title>KayKit Arena</title>
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+  </head>
+  <body>
+    <canvas id="scene" aria-label="Game view"></canvas>
+
+    <!-- Loading -->
+    <section id="screen-loading" class="screen visible" aria-live="polite">
+      <div class="panel narrow">
+        <h1 class="logo">KayKit <span>Arena</span></h1>
+        <p class="muted" id="loading-text">Loading assets…</p>
+        <div class="progress"><div id="loading-bar"></div></div>
+      </div>
+    </section>
+
+    <!-- Login / register -->
+    <section id="screen-login" class="screen">
+      <form class="panel narrow" id="login-form" autocomplete="on" novalidate>
+        <h1 class="logo">KayKit <span>Arena</span></h1>
+        <div class="tabs" role="tablist">
+          <button type="button" role="tab" class="tab active" data-mode="login" aria-selected="true">Log in</button>
+          <button type="button" role="tab" class="tab" data-mode="register" aria-selected="false">Create account</button>
+        </div>
+        <label>Username
+          <input name="username" id="username" autocomplete="username" required minlength="3" maxlength="16" pattern="[A-Za-z0-9_]{3,16}" spellcheck="false" />
+        </label>
+        <label>Password
+          <input name="password" id="password" type="password" autocomplete="current-password" required minlength="8" maxlength="128" />
+        </label>
+        <p class="error" id="login-error" role="alert"></p>
+        <button type="submit" class="primary" id="login-submit">Log in</button>
+        <p class="status-line"><span class="dot" id="server-dot"></span><span id="server-status">Checking server…</span></p>
+      </form>
+    </section>
+
+    <!-- Character select -->
+    <section id="screen-select" class="screen">
+      <div class="panel wide">
+        <h2>Choose your hero</h2>
+        <p class="muted" id="select-welcome"></p>
+        <div class="classes" id="class-list"></div>
+        <p class="error" id="select-error" role="alert"></p>
+        <div class="row">
+          <button type="button" class="ghost" id="logout-button">Log out</button>
+          <button type="button" class="primary" id="enter-button" disabled>Enter the arena</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- In-game HUD -->
+    <section id="hud" class="hidden">
+      <div class="hud-top-left">
+        <div class="portrait" id="hud-class"></div>
+        <div class="vitals">
+          <div class="name" id="hud-name"></div>
+          <div class="bar hp" aria-label="Health"><div id="hud-hp-fill"></div><span id="hud-hp-text"></span></div>
+          <div class="bar cd" aria-label="Attack cooldown"><div id="hud-cd-fill"></div></div>
+        </div>
+      </div>
+      <div class="hud-top-right">
+        <span class="pill" id="conn-pill">Connecting…</span>
+        <span class="pill stat" title="Gold">🪙 <b id="hud-gold">0</b></span>
+        <span class="pill stat" title="Kills">⚔ <b id="hud-kills">0</b></span>
+        <button class="icon" id="btn-inventory" title="Inventory (I)" aria-label="Inventory">🎒</button>
+        <button class="icon" id="btn-board" title="Leaderboard (L)" aria-label="Leaderboard">🏆</button>
+        <button class="icon" id="btn-menu" title="Menu (Esc)" aria-label="Menu">☰</button>
+      </div>
+      <canvas id="minimap" width="140" height="140" aria-label="Minimap"></canvas>
+      <ul id="feed" aria-live="polite"></ul>
+      <div id="toast" role="status"></div>
+      <div id="respawn" class="hidden"><h2>You have fallen</h2><p>Respawning in <b id="respawn-time">5</b>s…</p></div>
+      <p class="hint desktop-only">WASD / arrows to move · Click or Space to attack · Q to drink a potion</p>
+
+      <!-- Mobile controls -->
+      <div id="joystick" class="touch-only" aria-hidden="true"><div id="joystick-knob"></div></div>
+      <div class="touch-buttons touch-only">
+        <button id="btn-potion" aria-label="Drink potion">🧪<small id="hud-potions-touch">0</small></button>
+        <button id="btn-attack" aria-label="Attack">⚔</button>
+      </div>
+    </section>
+
+    <!-- Panels -->
+    <section id="panel-inventory" class="modal hidden" role="dialog" aria-labelledby="inv-title">
+      <div class="panel">
+        <h2 id="inv-title">Inventory</h2>
+        <div class="slots" id="inv-slots"></div>
+        <p class="muted small">Gear, crafting and trading are not implemented in this prototype; potions and gold are tracked by the server.</p>
+        <button class="ghost close">Close</button>
+      </div>
+    </section>
+    <section id="panel-board" class="modal hidden" role="dialog" aria-labelledby="board-title">
+      <div class="panel">
+        <h2 id="board-title">Leaderboard</h2>
+        <table><thead><tr><th>#</th><th>Hero</th><th>Class</th><th>Kills</th><th>Deaths</th><th>Gold</th></tr></thead><tbody id="board-body"></tbody></table>
+        <button class="ghost close">Close</button>
+      </div>
+    </section>
+    <section id="panel-menu" class="modal hidden" role="dialog" aria-labelledby="menu-title">
+      <div class="panel narrow">
+        <h2 id="menu-title">Menu</h2>
+        <label class="check"><input type="checkbox" id="opt-shadows" /> Shadows</label>
+        <label class="check"><input type="checkbox" id="opt-stats" /> Show FPS</label>
+        <button class="ghost" id="btn-change-hero">Change hero</button>
+        <button class="ghost" id="btn-logout-game">Log out</button>
+        <button class="primary close">Resume</button>
+        <p class="muted small credits">3D art: KayKit by Kay Lousberg (CC0). Prototype; see ASSET_CREDITS.md.</p>
+      </div>
+    </section>
+    <div id="fps" class="hidden"></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
