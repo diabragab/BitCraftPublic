@@ -74,6 +74,10 @@ Controls: **WASD/arrows** move, **click/Space** attack (mouse aims), **Q** potio
 
 Documentation: [PROJECT_AUDIT.md](./PROJECT_AUDIT.md) · [IMPLEMENTATION_PLAN.md](./IMPLEMENTATION_PLAN.md) · [ARCHITECTURE.md](./ARCHITECTURE.md) · [TEST_REPORT.md](./TEST_REPORT.md) · [KAYKIT_ASSET_INVENTORY.md](./KAYKIT_ASSET_INVENTORY.md) · [ASSET_CREDITS.md](./ASSET_CREDITS.md)
 
+### Single-player page (no server)
+
+`npm run build:offline` in `web/` builds a version where the arena rules run in the browser (`client/src/offline/sim.ts`, a port of the module's reducers and `world_tick`). The result in `web/client/dist-offline/` is a static page that needs no server; `artifact.html` is the same page for hosts that wrap pages in their own document (it is published as a claude.ai page). There is no login and no multiplayer; progress is kept in the browser. Test it with `npm run test:offline`.
+
 ### Share a public test link from your computer
 
 Uses a free [Cloudflare quick tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/do-more-with-tunnels/trycloudflare/) (no account). It only exposes the gateway; SpacetimeDB stays on localhost.

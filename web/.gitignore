@@ -1,6 +1,7 @@
 node_modules/
 .kaykit-cache/
 dist/
+dist-offline/
 target/
 .env
 .secrets/

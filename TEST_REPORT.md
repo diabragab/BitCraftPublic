@@ -75,6 +75,21 @@ After the PR-review fixes the suite was run twice in a row: 17/17 both times. Ou
 17/17 steps passed.
 ```
 
+### Single-player page — `npm run test:offline`
+
+Serves `artifact.html` wrapped in a bare document under a strict policy (`script-src 'self'` without eval, `connect-src 'self'`, `img-src 'self' data: blob:`) and records CSP violations:
+```
+✔ page loads under the strict policy and shows the hero-name prompt
+✔ enter a name, pick Knight, the world and skeletons are there — spawned at (0, 26)
+✔ movement and wall collision are simulated in the browser
+✔ combat: kill a skeleton, gold is awarded — kills=1 gold=4
+✔ progress is remembered after a reload — name and 1 kill(s) kept
+✔ no errors or CSP violations during desktop play
+✔ phone: joystick moves the hero and the attack button attacks
+7/7 steps passed.
+```
+The multiplayer E2E suite was re-run after the backend refactor: 17/17. The page was then published to claude.ai; loading it there could not be tested from this session (the published page needs a signed-in viewer).
+
 ### Existing BitCraft modules
 | Check | Result |
 |---|---|

@@ -1,10 +1,9 @@
 import { Identity } from 'spacetimedb';
+import type { Backend, ConnState, LeaderboardRow } from './backend';
 import { DbConnection } from './module_bindings';
 
 const TOKEN_KEY = 'kaykit-arena.identityToken';
 const USER_KEY = 'kaykit-arena.username';
-
-export type ConnState = 'connecting' | 'connected' | 'reconnecting' | 'offline';
 
 function store(key: string, value: string | null) {
   try {
@@ -41,15 +40,15 @@ export interface Health {
   spacetimedb: { reachable: boolean; databaseFound: boolean };
 }
 export const getHealth = () => api<Health>('/api/health');
-export const getLeaderboard = () =>
-  api<{ players: { username: string; class: string; kills: number; deaths: number; gold: number }[] }>('/api/leaderboard');
+export const getLeaderboard = () => api<{ players: LeaderboardRow[] }>('/api/leaderboard');
 
 /**
  * Owns the SpacetimeDB connection. The identity token is kept in localStorage
  * (the standard SpacetimeDB client pattern); the account password never leaves
  * the login request and is only checked by the gateway.
  */
-export class Net {
+export class Net implements Backend {
+  readonly offline = false;
   conn: DbConnection | null = null;
   identity: Identity | null = null;
   state: ConnState = 'offline';
@@ -66,6 +65,19 @@ export class Net {
 
   get hasSession() {
     return !!read(TOKEN_KEY) && !!this.username;
+  }
+
+  async health() {
+    try {
+      const h = await getHealth();
+      return { ok: h.status === 'ok', label: h.status === 'ok' ? 'Server online' : 'Server degraded' };
+    } catch (e) {
+      return { ok: false, label: (e as Error).message };
+    }
+  }
+
+  async leaderboard() {
+    return (await getLeaderboard()).players;
   }
 
   async init() {

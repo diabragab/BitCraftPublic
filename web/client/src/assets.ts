@@ -10,7 +10,19 @@ const EXTRA_PROPS = ['dungeon/bottle_A_green', 'dungeon/coin_stack_small'];
 const gltfs = new Map<string, GLTF>();
 
 export function propUrl(key: string) {
-  return `/assets/${key}.glb`;
+  // BASE_URL is '/' for the served build and './' for the single-player page build. Page hosts
+  // that only serve standard web file types (claude.ai) get the models as JSON-wrapped GLBs,
+  // written by tools/build-artifact.mjs.
+  return `${import.meta.env.BASE_URL}assets/${key}${__OFFLINE__ ? '.glb.json' : '.glb'}`;
+}
+
+async function loadModel(loader: GLTFLoader, key: string): Promise<GLTF> {
+  if (!__OFFLINE__) return loader.loadAsync(propUrl(key));
+  const res = await fetch(propUrl(key));
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const { base64 } = (await res.json()) as { base64: string };
+  const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
+  return loader.parseAsync(bytes.buffer, '');
 }
 
 /** Loads every model the game needs. Reports progress as a 0..1 fraction. */
@@ -20,6 +32,20 @@ export async function loadAll(onProgress: (fraction: number, label: string) => v
     ...WEAPON_MODELS.map((k) => `weapons/${k}`),
     ...new Set([...MAP.props.map((p) => p.model), ...EXTRA_PROPS]),
   ];
+  // GLTFLoader decodes embedded textures with fetch(blob:) + createImageBitmap when available.
+  // Hosts whose content-security policy blocks fetching blob: URLs (the claude.ai page sandbox)
+  // still allow <img src="blob:...">, so the single-player build takes that path instead.
+  // GLTFParser checks this per file, so it stays disabled until loading has finished.
+  const savedBitmap = window.createImageBitmap;
+  if (__OFFLINE__) (window as { createImageBitmap?: unknown }).createImageBitmap = undefined;
+  try {
+    await loadFiles(keys, onProgress);
+  } finally {
+    if (__OFFLINE__) window.createImageBitmap = savedBitmap;
+  }
+}
+
+async function loadFiles(keys: string[], onProgress: (fraction: number, label: string) => void) {
   const loader = new GLTFLoader();
   let done = 0;
   const failures: string[] = [];
@@ -28,7 +54,7 @@ export async function loadAll(onProgress: (fraction: number, label: string) => v
   async function worker() {
     for (let key = queue.shift(); key; key = queue.shift()) {
       try {
-        gltfs.set(key, await loader.loadAsync(propUrl(key)));
+        gltfs.set(key, await loadModel(loader, key));
       } catch (e) {
         console.error('asset failed', key, e);
         failures.push(key);

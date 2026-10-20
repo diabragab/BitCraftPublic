@@ -3,7 +3,7 @@ import { Bolt, CharacterView, PickupView, createEnemyView } from './entities';
 import { Input } from './input';
 import { CLASSES, MAP, slide, type ClassId } from './map';
 import type { DbConnection } from './module_bindings';
-import type { Net } from './net';
+import type { Backend } from './backend';
 import type { WorldView } from './world';
 
 type Conn = DbConnection;
@@ -36,7 +36,7 @@ export class Game {
   active = false;
   onLeft: () => void = () => {};
 
-  constructor(private world: WorldView, private net: Net, private input: Input, private portraits: Record<string, string>) {
+  constructor(private world: WorldView, private net: Backend, private input: Input, private portraits: Record<string, string>) {
     input.onMoveChange = () => {
       if (this.canAct()) this.sendInput(this.input.move().x, this.input.move().z);
     };

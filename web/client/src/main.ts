@@ -4,7 +4,7 @@ import { cloneCharacter, loadAll } from './assets';
 import { Game } from './game';
 import { Input } from './input';
 import { CLASS_IDS, CLASSES, type ClassId } from './map';
-import { ApiError, Net, getHealth, getLeaderboard, type ConnState } from './net';
+import type { Backend, ConnState } from './backend';
 import { createWorld } from './world';
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -19,9 +19,9 @@ function show(screen: 'loading' | 'login' | 'select' | 'game') {
 const prefs = (() => {
   const mobile = matchMedia('(pointer: coarse)').matches;
   try {
-    return { shadows: !mobile, stats: false, ...JSON.parse(localStorage.getItem('kaykit-arena.prefs') ?? '{}') };
+    return { shadows: !mobile, stats: false, lastClass: null as string | null, ...JSON.parse(localStorage.getItem('kaykit-arena.prefs') ?? '{}') };
   } catch {
-    return { shadows: !mobile, stats: false };
+    return { shadows: !mobile, stats: false, lastClass: null as string | null };
   }
 })();
 const savePrefs = () => {
@@ -73,10 +73,30 @@ function renderPortraits(renderer: THREE.WebGLRenderer): Record<string, string> 
   return out;
 }
 
+/** Single-player build: the login form becomes a hero-name prompt. */
+function setupOfflineLogin() {
+  document.querySelector<HTMLElement>('.tabs')!.hidden = true;
+  $('password').closest('label')!.hidden = true;
+  $<HTMLInputElement>('password').required = false;
+  const name = $('username').closest('label')!;
+  name.firstChild!.textContent = 'Hero name';
+  $('login-submit').textContent = 'Play';
+  const note = document.createElement('p');
+  note.className = 'muted small';
+  note.textContent =
+    'Single-player preview: the skeletons, combat and pickups run in your browser. Your progress is saved on this device. Multiplayer needs the server version.';
+  $('login-error').before(note);
+}
+
 async function boot() {
   show('loading');
-  const net = new Net();
+  // The build flag picks the backend; the unused one (and the SpacetimeDB SDK in the
+  // single-player build) is left out of the bundle.
+  const net: Backend = __OFFLINE__
+    ? new (await import('./offline/backend')).OfflineBackend()
+    : new (await import('./net')).Net();
   const configReady = net.init();
+  if (net.offline) setupOfflineLogin();
 
   try {
     await loadAll((f, label) => {
@@ -98,7 +118,9 @@ async function boot() {
   // ---- connection status
   const pill = $('conn-pill');
   net.onState = (s: ConnState, detail?: string) => {
-    const label: Record<ConnState, string> = { connecting: 'Connecting…', connected: 'Online', reconnecting: 'Reconnecting…', offline: 'Offline' };
+    const label: Record<ConnState, string> = net.offline
+      ? { connecting: 'Starting…', connected: 'Single-player', reconnecting: 'Starting…', offline: 'Stopped' }
+      : { connecting: 'Connecting…', connected: 'Online', reconnecting: 'Reconnecting…', offline: 'Offline' };
     pill.textContent = label[s];
     pill.title = detail ?? '';
     pill.className = `pill ${s === 'connected' ? 'ok' : s === 'offline' ? 'bad' : 'warn'}`;
@@ -111,15 +133,9 @@ async function boot() {
 
   // ---- server status on the login screen
   async function refreshHealth() {
-    try {
-      const h = await getHealth();
-      const ok = h.status === 'ok';
-      $('server-dot').className = `dot ${ok ? 'ok' : 'bad'}`;
-      $('server-status').textContent = ok ? 'Server online' : 'Server degraded';
-    } catch (e) {
-      $('server-dot').className = 'dot bad';
-      $('server-status').textContent = (e as Error).message;
-    }
+    const h = await net.health();
+    $('server-dot').className = `dot ${h.ok ? 'ok' : 'bad'}`;
+    $('server-status').textContent = h.label;
   }
 
   // ---- login
@@ -141,8 +157,8 @@ async function boot() {
     const username = $<HTMLInputElement>('username').value.trim();
     const password = $<HTMLInputElement>('password').value;
     const err = $('login-error');
-    if (!/^[A-Za-z0-9_]{3,16}$/.test(username)) return void (err.textContent = 'Username: 3-16 letters, digits or _');
-    if (password.length < 8) return void (err.textContent = 'Password must be at least 8 characters');
+    if (!/^[A-Za-z0-9_]{3,16}$/.test(username)) return void (err.textContent = 'Name: 3-16 letters, digits or _');
+    if (!net.offline && password.length < 8) return void (err.textContent = 'Password must be at least 8 characters');
     const btn = $<HTMLButtonElement>('login-submit');
     btn.disabled = true;
     err.textContent = '';
@@ -152,7 +168,7 @@ async function boot() {
       chosen = null;
       void openSelect();
     } catch (ex) {
-      err.textContent = ex instanceof ApiError ? ex.message : `Login failed: ${(ex as Error).message}`;
+      err.textContent = (ex as Error).message;
     } finally {
       btn.disabled = false;
     }
@@ -185,7 +201,7 @@ async function boot() {
     $('select-welcome').textContent = `Welcome, ${net.username}. Pick a class; you can change it from the menu later.`;
     // After logging in on a new device the server moves the character to this identity; that
     // row update can arrive a moment after the HTTP login response, so wait briefly for it.
-    for (let i = 0; i < 20 && !chosen; i++) {
+    for (let i = 0; i < (net.offline ? 0 : 20) && !chosen; i++) {
       const existing = net.conn && net.identity ? net.conn.db.player.identity.find(net.identity) : undefined;
       if (existing && (CLASS_IDS as string[]).includes(existing.class)) {
         select(existing.class as ClassId);
@@ -193,6 +209,8 @@ async function boot() {
       }
       await new Promise((r) => setTimeout(r, 100));
     }
+    // no character yet (new device, or the single-player world after a reload): last class used here
+    if (!chosen && (CLASS_IDS as string[]).includes(prefs.lastClass ?? '')) select(prefs.lastClass as ClassId);
   }
   $('enter-button').addEventListener('click', async () => {
     if (!chosen) return;
@@ -202,6 +220,8 @@ async function boot() {
     try {
       if (!net.conn) await net.connect();
       await game.enter(chosen);
+      prefs.lastClass = chosen;
+      savePrefs();
       show('game');
     } catch (e) {
       const msg = (e as Error).message;
@@ -231,7 +251,7 @@ async function boot() {
     const body = $('board-body');
     body.innerHTML = '<tr><td colspan="6">Loading…</td></tr>';
     try {
-      const { players } = await getLeaderboard();
+      const players = await net.leaderboard();
       body.innerHTML = '';
       players.forEach((p, i) => {
         const tr = document.createElement('tr');
