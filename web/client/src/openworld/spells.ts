@@ -39,6 +39,8 @@ export class Spells {
   private aura: FixtureRun | null = null;
   private auraElement: Element | null = null;
   private dissolves = 0;
+  /** Statuses started per name, for tests (a short stun can start and end between two slow frames). */
+  private started: Record<string, number> = {};
   private shieldTarget = 0;
 
   constructor(private fx: FXSystem, private height: (x: number, z: number) => number) {}
@@ -146,6 +148,7 @@ export class Spells {
       const run = runs?.get(name);
       if (want[name] && !run?.alive) {
         if (!runs) this.statuses.set(root, (runs = new Map()));
+        this.started[name] = (this.started[name] ?? 0) + 1;
         runs.set(name, this.fx.status(root, name as StatusName, name === 'freeze' ? { progress: 0.35, duration: 0.5 } : {}));
       } else if (!want[name] && run) {
         run.stop();
@@ -209,6 +212,6 @@ export class Spells {
 
   /** Counts for the stats line and tests. */
   stats() {
-    return { ...this.fx.stats(), enemyStatuses: [...this.statuses.values()].reduce((n, m) => n + m.size, 0), dissolves: this.dissolves, shield: !!this.shield?.alive, aura: this.auraElement };
+    return { ...this.fx.stats(), enemyStatuses: [...this.statuses.values()].reduce((n, m) => n + m.size, 0), dissolves: this.dissolves, started: { ...this.started }, shield: !!this.shield?.alive, aura: this.auraElement };
   }
 }

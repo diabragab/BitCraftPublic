@@ -373,6 +373,7 @@ await step('combat skills: the first skill point learns Shield Bash, key 1 stuns
   const before = await enemyState(pg, id);
   const sfx0 = await pg.evaluate(() => window.__world.audio.stats.sfx);
   const fx0 = await pg.evaluate(() => window.__world.spells.stats().effects);
+  const stun0 = await pg.evaluate(() => window.__world.spells.stats().started.stun ?? 0);
   await pg.keyboard.press('1');
   const cast = await pg.evaluate(() => ({ effects: window.__world.spells.stats().effects }));
   assert(cast.effects > fx0, 'no rollshade effect for the skill');
@@ -384,13 +385,14 @@ await step('combat skills: the first skill point learns Shield Bash, key 1 stuns
   }
   assert(after && after.hp < before.hp, `skill did no damage: ${before.hp} → ${after?.hp}`);
   assert(after.stunned || !after.alive, 'skeleton not stunned');
-  // the stun shows as rollshade's stun status (stars over the head)
-  let stunned = 0;
-  for (let i = 0; i < 8 && !stunned && after.alive; i++) {
-    stunned = await pg.evaluate(() => window.__world.spells.stats().enemyStatuses);
-    if (!stunned) await sleep(250);
+  // the stun shows as rollshade's stun status (stars over the head); counted when it starts,
+  // since a 1.5 s stun can begin and end between two software-rendered frames
+  let stuns = 0;
+  for (let i = 0; i < 20 && !stuns && after.alive; i++) {
+    stuns = (await pg.evaluate(() => window.__world.spells.stats().started.stun ?? 0)) - stun0;
+    if (!stuns) await sleep(500);
   }
-  assert(stunned > 0 || !after.alive, 'no stun status on the skeleton');
+  assert(stuns > 0 || !after.alive, 'no stun status on the skeleton');
   // the HUD shows the cooldown on its next frame (software rendering is slow)
   let cd = '';
   for (let i = 0; i < 10 && !cd; i++) {
