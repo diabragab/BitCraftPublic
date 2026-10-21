@@ -105,10 +105,8 @@ async function chopTree(p, onTarget) {
       return t?.type === 'node' && t.node.id === id;
     }, tree.id),
   );
-  if (onTarget) {
-    await sleep(600); // the HUD refreshes the highlight every 100 ms; frames are slow here
-    await onTarget();
-  }
+  // the HUD refreshes the highlight on its next frame, and software-rendered frames are slow
+  if (onTarget) for (let i = 0; i < 10; i++) if (await onTarget()) break; else await sleep(500);
   await p.keyboard.press('e');
   const end = Date.now() + 60000;
   let s;
@@ -163,6 +161,7 @@ await step('walk to a tree and chop it (+3 wood, woodcutting XP, outline, chop s
   let outlined = 0;
   const s = await chopTree(pg, async () => {
     outlined = Math.max(outlined, await pg.evaluate(() => window.__world.renderer.outline.group.children.length));
+    return outlined > 0;
   });
   assert(s.xp.woodcutting > 0, 'no woodcutting XP');
   assert(outlined > 0, 'the targeted tree was not outlined');
@@ -203,8 +202,14 @@ await step('build a wooden fence through the build panel', async () => {
   }
   const reason = await pg.textContent('#build-text');
   assert(await pg.$eval('#btn-place', (b) => !b.disabled), `cannot place: ${reason}`);
-  await pg.$eval('#btn-place', (b) => b.click());
-  const s = await snap(pg);
+  // the button reflects the last rendered frame; at software-rendering frame rates the hero may
+  // have drifted since, and the game then refuses the spot. Try again on the next frame.
+  let s;
+  for (let i = 0; i < 4; i++) {
+    if (await pg.$eval('#btn-place', (b) => !b.disabled)) await pg.$eval('#btn-place', (b) => b.click());
+    await sleep(1200);
+    if ((s = await snap(pg)).structures === 1) break;
+  }
   assert(s.structures === 1 && (s.inv.plank ?? 0) === 0, JSON.stringify(s));
   await pg.screenshot({ path: join(out, 'world-build.png') });
   return `construction xp=${s.xp.construction}`;
@@ -299,6 +304,177 @@ await step('a slain skeleton burns away (dissolve shader) with its death sound',
   return `dissolve shader active, ${sfx} sound effect(s)`;
 });
 
+/** Test setup only: moves the hero, alive and healed, next to a village station (crafting needs one nearby). */
+async function toStation(p, station) {
+  // earlier steps fight near a ruin; wait out a respawn so it cannot move the hero afterwards
+  const end = Date.now() + 15000;
+  while (Date.now() < end && !(await snap(p)).alive) await sleep(500);
+  await p.evaluate((station) => {
+    const w = window.__world.world;
+    const s = w.gen.village.find((v) => v.station === station);
+    w.player.x = s.x + 3;
+    w.player.z = s.z + 3;
+    w.player.hp = w.maxHp();
+  }, station);
+}
+/** Test setup only: a skeleton a few metres in front of the hero, facing it. */
+const spawnFoe = (p, kind = 'minion', level = 1, d = 2.2) =>
+  p.evaluate(({ kind, level, d }) => {
+    const w = window.__world.world;
+    const pl = w.player;
+    // tied to a ruin: free-roaming skeletons only exist at night
+    const e = w.addEnemy(kind, level, pl.x + Math.sin(pl.facing) * d, pl.z + Math.cos(pl.facing) * d, w.gen.ruins[0].id);
+    e.engaged = true;
+    return e.id;
+  }, { kind, level, d });
+const enemyState = (p, id) => p.evaluate((id) => {
+  const e = window.__world.world.enemies.get(id);
+  return e ? { hp: e.hp, maxHp: e.maxHp, alive: e.alive, stunned: e.stunUntil > Date.now() } : null;
+}, id);
+
+await step('combat skills: the first skill point learns Shield Bash, key 1 stuns and damages a skeleton', async () => {
+  // outside the village so the skeleton fights back
+  await pg.evaluate(() => {
+    const w = window.__world.world;
+    w.player.x = 60;
+    w.player.z = 40;
+    w.player.facing = 0;
+  });
+  await sleep(1500);
+  const points = (await snap(pg)).points;
+  assert(points >= 1, `no skill point at combat level 1 (${points})`);
+  await pg.keyboard.press('k');
+  await pg.waitForSelector('#panel-skills:not(.hidden)');
+  await pg.$eval('#ability-list .entry:first-child button', (b) => b.click());
+  assert((await snap(pg)).skills.shield_bash === 1, 'Shield Bash not learned');
+  await pg.keyboard.press('Escape');
+  const id = await spawnFoe(pg, 'warrior', 1, 2);
+  await sleep(800);
+  const before = await enemyState(pg, id);
+  const sfx0 = await pg.evaluate(() => window.__world.audio.stats.sfx);
+  await pg.keyboard.press('1');
+  await sleep(600);
+  const after = await enemyState(pg, id);
+  assert(after && after.hp < before.hp, `skill did no damage: ${before.hp} → ${after?.hp}`);
+  assert(after.stunned || !after.alive, 'skeleton not stunned');
+  // the HUD shows the cooldown on its next frame (software rendering is slow)
+  let cd = '';
+  for (let i = 0; i < 10 && !cd; i++) {
+    cd = await pg.$eval('#hotbar .hot[data-slot="0"] .cd', (el) => el.textContent);
+    if (!cd) await sleep(400);
+  }
+  assert(cd !== '', 'hotbar shows no cooldown');
+  const sfx = (await pg.evaluate(() => window.__world.audio.stats.sfx)) - sfx0;
+  await pg.screenshot({ path: join(out, 'world-skill.png') });
+  return `hp ${before.hp} → ${after.hp}, stunned, cooldown ${cd}s on the hotbar, ${sfx} sound effects`;
+});
+
+await step('gear: craft a bone blade at the workbench, equip it, damage goes up', async () => {
+  await toStation(pg, 'workbench');
+  await pg.evaluate(() => {
+    const inv = window.__world.world.player.inv;
+    inv.bone = (inv.bone ?? 0) + 6;
+    inv.plank = (inv.plank ?? 0) + 1;
+  });
+  const dmg0 = (await snap(pg)).damage;
+  await pg.keyboard.press('c');
+  await pg.waitForSelector('#panel-crafting:not(.hidden)');
+  const idx = await pg.$$eval('#craft-list .entry b', (bs) => bs.findIndex((b) => b.textContent.startsWith('Bone blade')));
+  assert(idx >= 0, 'no bone blade recipe');
+  await pg.$eval(`#craft-list .entry:nth-child(${idx + 1}) button`, (b) => b.click());
+  await pg.keyboard.press('Escape');
+  assert((await snap(pg)).gear >= 1, 'no gear crafted');
+  await pg.keyboard.press('g');
+  await pg.waitForSelector('#panel-gear:not(.hidden)');
+  await pg.$eval('#gear-bag button', (b) => b.click());
+  await pg.$eval('#gear-detail .row button.primary', (b) => b.click());
+  const s = await snap(pg);
+  assert(s.equipped.weapon, 'nothing equipped');
+  assert(s.damage > dmg0, `damage did not go up: ${dmg0} → ${s.damage}`);
+  await pg.screenshot({ path: join(out, 'world-gear.png') });
+  await pg.keyboard.press('Escape');
+  return `damage per hit ${Math.round(dmg0)} → ${Math.round(s.damage)}`;
+});
+
+await step('pets: bond a Skeleton Squire; it follows, fights, gains XP and learns Taunt', async () => {
+  await toStation(pg, 'workbench');
+  await pg.evaluate(() => {
+    const inv = window.__world.world.player.inv;
+    inv.bone = (inv.bone ?? 0) + 8;
+    inv.plank = (inv.plank ?? 0) + 2;
+  });
+  await pg.keyboard.press('c');
+  await pg.waitForSelector('#panel-crafting:not(.hidden)');
+  const idx = await pg.$$eval('#craft-list .entry b', (bs) => bs.findIndex((b) => b.textContent.startsWith('Bound skull')));
+  await pg.$eval(`#craft-list .entry:nth-child(${idx + 1}) button`, (b) => b.click());
+  await pg.keyboard.press('Escape');
+  assert((await snap(pg)).inv.bone_charm === 1, 'bound skull not crafted');
+  await pg.keyboard.press('p');
+  await pg.waitForSelector('#panel-pets:not(.hidden)');
+  await pg.$eval('#pet-list .pet-card:first-child .actions button.primary', (b) => b.click());
+  let s = await snap(pg);
+  assert(s.pet?.species === 'squire', `no pet: ${JSON.stringify(s.pet)}`);
+  await pg.keyboard.press('Escape');
+  // it follows: walk away and check it keeps up
+  await pg.evaluate(() => {
+    const w = window.__world.world;
+    w.player.x = 60;
+    w.player.z = 40;
+  });
+  const end = Date.now() + 20000;
+  while (Date.now() < end && Math.hypot((s = await snap(pg)).pet.x - s.x, s.pet.z - s.z) > 4) await sleep(500);
+  assert(Math.hypot(s.pet.x - s.x, s.pet.z - s.z) <= 4, 'pet did not follow');
+  // it fights: a skeleton in front of you, attacked by you and the pet
+  const id = await spawnFoe(pg, 'warrior', 1, 2.5);
+  const xp0 = s.pet.xp;
+  const until = Date.now() + 40000;
+  let petHits = 0;
+  while (Date.now() < until && (await enemyState(pg, id))?.alive) {
+    petHits = await pg.evaluate(() => window.__world.world.pet()?.attackSeq ?? 0);
+    await pg.keyboard.press(' ');
+    await sleep(400);
+  }
+  assert(!(await enemyState(pg, id))?.alive, 'skeleton survived');
+  assert(petHits > 0, 'the pet never attacked');
+  s = await snap(pg);
+  assert(s.pet.xp > xp0, 'pet gained no XP from the kill');
+  // its first skill point learns Taunt from the pets panel
+  await pg.keyboard.press('p');
+  await pg.waitForSelector('#panel-pets:not(.hidden)');
+  await pg.$$eval('#pet-list .pet-card:first-child .actions button', (bs) => bs.find((b) => b.textContent.startsWith('Skills')).click());
+  await pg.$eval('#pet-list .pet-card:first-child .skills .entry:first-child button', (b) => b.click());
+  const taunt = await pg.evaluate(() => window.__world.world.pet().skills.taunt ?? 0);
+  assert(taunt === 1, 'Taunt not learned');
+  await pg.screenshot({ path: join(out, 'world-pets.png') });
+  await pg.keyboard.press('Escape');
+  return `pet attacked ${petHits}×, pet XP ${xp0} → ${s.pet.xp}, Taunt learned`;
+});
+
+await step('HDR: the scene renders through a half-float target with bloom', async () => {
+  const r = await pg.evaluate(() => {
+    const rr = window.__world.renderer;
+    return { bloom: rr.bloomEnabled && rr.bloom.enabled, type: rr.composer.renderTarget1.texture.type, passes: rr.composer.passes.length };
+  });
+  assert(r.bloom && r.type === 1016 && r.passes === 3, JSON.stringify(r)); // 1016 = THREE.HalfFloatType
+  return 'half-float target, render + bloom + tone-mapping passes';
+});
+
+await step('skills, gear and pet survive a reload', async () => {
+  const before = await snap(pg);
+  await pg.evaluate(() => window.__world.world.save());
+  await pg.reload();
+  await pg.waitForSelector('#screen-start.visible', { timeout: 180000 });
+  await pg.click('#btn-continue', { timeout: 60000 });
+  await pg.waitForSelector('#hud:not(.hidden)');
+  const s = await snap(pg);
+  assert(s.skills.shield_bash === 1, 'skill rank lost');
+  assert(s.equipped.weapon === before.equipped.weapon, 'equipped weapon lost');
+  assert(s.pet?.species === 'squire' && s.pet.xp === before.pet.xp, `pet lost: ${JSON.stringify(s.pet)}`);
+  const taunt = await pg.evaluate(() => window.__world.world.pet().skills.taunt ?? 0);
+  assert(taunt === 1, 'pet skill lost');
+  return `skills ${JSON.stringify(s.skills)}, weapon kept, ${s.pet.species} with ${s.pet.xp} XP and Taunt`;
+});
+
 await step('no errors or CSP violations on desktop', async () => {
   const csp = await pg.evaluate(() => window.__csp);
   assert(csp.length === 0 && problems.length === 0, [...csp, ...problems].join('\n'));
@@ -309,7 +485,7 @@ const mobile = await browser.newContext({ viewport: { width: 390, height: 844 },
 await cspProbe(mobile);
 const mp = await mobile.newPage();
 const mproblems = watch(mp);
-await step('phone: joystick moves the hero, the ✋ button gathers', async () => {
+await step('phone: joystick moves the hero, the ✋ button gathers, a skill button casts', async () => {
   await mp.goto(BASE + '/');
   await mp.waitForSelector('#screen-start.visible', { timeout: 180000 });
   await mp.fill('#hero-name', 'Phone');
@@ -338,10 +514,17 @@ await step('phone: joystick moves the hero, the ✋ button gathers', async () =>
   let s;
   while (Date.now() < end && !(s = await snap(mp)).gathering && !(s.inv.wood > 0)) await sleep(300);
   assert(s.gathering || s.inv.wood > 0, 'tapping ✋ did not start gathering');
+  // skill buttons: learn the first skill, tap its button
+  await mp.evaluate(() => window.__world.world.learnSkill(window.__world.world.classSkills()[0].id));
+  await sleep(500);
+  await mp.locator('#hotbar .hot[data-slot="0"]').tap();
+  await sleep(500);
+  const cdLeft = await mp.evaluate(() => window.__world.world.cooldownLeft(window.__world.world.classSkills()[0].id));
+  assert(cdLeft > 0, 'tapping the skill button did not cast it');
   await mp.screenshot({ path: join(out, 'world-mobile.png') });
   const csp = await mp.evaluate(() => window.__csp);
   assert(csp.length === 0 && mproblems.length === 0, [...csp, ...mproblems].join('\n'));
-  return `moved ${(moved.z - start.z).toFixed(1)} m, gathering started`;
+  return `moved ${(moved.z - start.z).toFixed(1)} m, gathering started, skill button cast Shadowstep`;
 });
 
 await browser.close();

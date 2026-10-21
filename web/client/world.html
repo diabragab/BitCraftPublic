@@ -43,8 +43,16 @@
         <div class="portrait" id="hud-class"></div>
         <div class="vitals">
           <div class="name" id="hud-name"></div>
-          <div class="bar hp" aria-label="Health"><div id="hud-hp-fill"></div><span id="hud-hp-text"></span></div>
+          <div class="bar hp" aria-label="Health"><div id="hud-hp-fill"></div><div id="hud-shield-fill" class="shield-fill"></div><span id="hud-hp-text"></span></div>
           <div class="bar cd" aria-label="Attack cooldown"><div id="hud-cd-fill"></div></div>
+          <div id="hud-buffs" class="buffs" aria-label="Active effects"></div>
+          <div id="hud-pet" class="pet-vitals" hidden>
+            <span id="hud-pet-icon"></span>
+            <div class="pet-info">
+              <div class="name" id="hud-pet-name"></div>
+              <div class="bar hp pet small" aria-label="Pet health"><div id="hud-pet-fill"></div></div>
+            </div>
+          </div>
         </div>
       </div>
       <div class="hud-top-right">
@@ -53,7 +61,9 @@
         <button class="icon" data-panel="inventory" title="Inventory (I)" aria-label="Inventory">🎒</button>
         <button class="icon" data-panel="crafting" title="Crafting (C)" aria-label="Crafting">🔨</button>
         <button class="icon" data-panel="build" title="Build (B)" aria-label="Build">🏠</button>
+        <button class="icon" data-panel="gear" title="Character and gear (G)" aria-label="Character and gear">🛡</button>
         <button class="icon" data-panel="skills" title="Skills (K)" aria-label="Skills">📈</button>
+        <button class="icon" data-panel="pets" title="Pets (P)" aria-label="Pets">🐾</button>
         <button class="icon" data-panel="map" title="Map (M)" aria-label="Map">🗺</button>
         <button class="icon" data-panel="menu" title="Menu (Esc)" aria-label="Menu">☰</button>
       </div>
@@ -71,7 +81,11 @@
       <ul id="feed" aria-live="polite"></ul>
       <div id="toast" role="status"></div>
       <div id="respawn" class="hidden"><h2>You have fallen</h2><p>Respawning in <b id="respawn-time">5</b>s…</p></div>
-      <p class="hint desktop-only">WASD move · Click/Space attack · E gather / open · Q potion · I C B K M panels</p>
+      <div id="hotbar" aria-label="Combat skills">
+        <button class="hot" data-slot="0"></button><button class="hot" data-slot="1"></button>
+        <button class="hot" data-slot="2"></button><button class="hot" data-slot="3"></button>
+      </div>
+      <p class="hint desktop-only">WASD move · Click/Space attack · 1-4 skills · E gather / open · Q potion · I C B G K P M panels</p>
 
       <div id="joystick" class="touch-only" aria-hidden="true"><div id="joystick-knob"></div></div>
       <div class="touch-buttons touch-only ow-touch">
@@ -108,7 +122,36 @@
     <section id="panel-skills" class="modal hidden" role="dialog" aria-labelledby="skills-title">
       <div class="panel">
         <h2 id="skills-title">Skills</h2>
+        <h3 class="sub">Combat skills <span class="points" id="skill-points"></span></h3>
+        <p class="muted small">Every combat level gives a skill point. Spend points to learn skills or raise their rank (stronger effect). Use them with keys 1-4 or the skill buttons.</p>
+        <div class="list" id="ability-list"></div>
+        <h3 class="sub">Trade skills</h3>
         <div class="list" id="skills-list"></div>
+        <button class="ghost close">Close</button>
+      </div>
+    </section>
+    <section id="panel-gear" class="modal hidden" role="dialog" aria-labelledby="gear-title">
+      <div class="panel wide">
+        <h2 id="gear-title">Character</h2>
+        <div class="gear-layout">
+          <div>
+            <div class="equip-slots" id="equip-slots"></div>
+            <dl class="stat-list" id="stat-list"></dl>
+          </div>
+          <div>
+            <h3 class="sub">Gear bag <span class="muted" id="bag-count"></span></h3>
+            <div class="gear-bag" id="gear-bag"></div>
+            <div class="gear-detail" id="gear-detail"><p class="muted small">Pick a piece of gear to see it. Skeletons drop gear and ruin chests always hold some; better pieces have extra stats.</p></div>
+          </div>
+        </div>
+        <button class="ghost close">Close</button>
+      </div>
+    </section>
+    <section id="panel-pets" class="modal hidden" role="dialog" aria-labelledby="pets-title">
+      <div class="panel wide">
+        <h2 id="pets-title">Pets</h2>
+        <p class="muted small">Craft a charm, bond with its pet, and it fights beside you and boosts you with its aura. Pets level up from your fights and learn skills with their own skill points. One pet can be out at a time.</p>
+        <div class="list" id="pet-list"></div>
         <button class="ghost close">Close</button>
       </div>
     </section>
@@ -125,6 +168,7 @@
         <h2 id="menu-title">Menu</h2>
         <label class="check"><input type="checkbox" id="opt-shadows" /> Shadows</label>
         <label class="check"><input type="checkbox" id="opt-grass" /> Grass</label>
+        <label class="check"><input type="checkbox" id="opt-bloom" /> Glow (HDR bloom)</label>
         <label class="check"><input type="checkbox" id="opt-stats" /> Show FPS</label>
         <label class="range">Music <input type="range" id="opt-music" min="0" max="100" step="5" /></label>
         <label class="range">Sound effects <input type="range" id="opt-sfx" min="0" max="100" step="5" /></label>

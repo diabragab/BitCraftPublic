@@ -29,7 +29,7 @@
 .slot b { position: absolute; right: 4px; bottom: 2px; font-size: 12px; font-variant-numeric: tabular-nums; }
 .slot.selected { outline: 2px solid var(--gold); }
 
-#action-prompt { position: absolute; left: 50%; bottom: max(90px, calc(env(safe-area-inset-bottom) + 90px)); transform: translateX(-50%);
+#action-prompt { position: absolute; left: 50%; bottom: max(104px, calc(env(safe-area-inset-bottom) + 104px)); transform: translateX(-50%);
   background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 8px 14px; font-size: 14px; text-align: center;
   min-width: 200px; display: flex; flex-direction: column; gap: 6px; }
 #action-prompt .bar.gather { height: 6px; }
@@ -67,3 +67,85 @@ button.danger-fill { background: linear-gradient(180deg, #ef6a52, #c23b30); colo
 
 label.range { display: grid; grid-template-columns: 1fr 2fr; align-items: center; gap: 12px; font-size: 14px; }
 label.range input { width: 100%; accent-color: var(--gold); }
+
+/* health shield, buffs and the pet line in the vitals box */
+.bar .shield-fill { position: absolute; left: 0; top: 0; height: 100%; width: 0; background: linear-gradient(90deg, rgba(180, 150, 255, 0.85), rgba(235, 220, 255, 0.9)); }
+.buffs { display: flex; gap: 3px; flex-wrap: wrap; }
+.buffs:empty { display: none; }
+.buffs .buff { position: relative; width: 22px; height: 22px; }
+.buffs .buff svg { width: 22px; height: 22px; display: block; }
+.buffs .buff b { position: absolute; right: -3px; bottom: -4px; font-size: 9px; text-shadow: 0 1px 2px #000; }
+.pet-vitals { display: flex; gap: 6px; align-items: center; }
+.pet-vitals svg { width: 24px; height: 24px; display: block; }
+.pet-vitals .pet-info { flex: 1; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.pet-vitals .name { font-size: 11px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bar.small { height: 6px; }
+.bar.hp.pet > div { background: linear-gradient(90deg, #6d48c9, #a98bff); }
+.nameplate.pet .mini > div { background: #a98bff; }
+.nameplate.pet .label { color: #ddd0ff; }
+.dmg.pet { color: #c9b4ff; font-size: 15px; }
+.dmg.shield { color: #e2d6ff; font-size: 15px; }
+
+/* skill hotbar */
+#hotbar { position: absolute; left: 50%; bottom: max(30px, calc(env(safe-area-inset-bottom) + 30px)); transform: translateX(-50%);
+  display: flex; gap: 8px; pointer-events: auto; }
+#hotbar[hidden] { display: none; }
+.hot { position: relative; width: 58px; height: 58px; min-height: 58px; padding: 0; border-radius: 14px; background: rgba(20, 16, 26, 0.75);
+  overflow: hidden; touch-action: none; }
+.hot svg { width: 100%; height: 100%; display: block; }
+.hot .key { position: absolute; left: 5px; top: 3px; font-size: 11px; font-weight: 800; text-shadow: 0 1px 2px #000; }
+.hot .rank { position: absolute; right: 5px; bottom: 3px; font-size: 10px; font-weight: 800; text-shadow: 0 1px 2px #000; color: var(--gold); }
+.hot .cd { position: absolute; inset: 0; background: conic-gradient(rgba(0, 0, 0, 0.68) calc(var(--cd, 0) * 1turn), transparent 0);
+  display: flex; align-items: center; justify-content: center; font-size: 16px; font-weight: 800; text-shadow: 0 1px 3px #000; }
+.hot.locked svg { filter: grayscale(1) brightness(0.45); }
+.hot.ready { box-shadow: 0 0 10px 1px rgba(255, 214, 120, 0.45); border-color: rgba(255, 214, 120, 0.6); }
+.ico-svg.dim { filter: grayscale(1) brightness(0.5); }
+@media (pointer: coarse) {
+  #hotbar { left: auto; transform: none; right: max(12px, env(safe-area-inset-right)); bottom: 212px; flex-direction: column; gap: 6px; }
+  .hot { width: 52px; height: 52px; min-height: 52px; }
+}
+
+/* skills panel */
+h3.sub { margin: 10px 0 0; font-size: 15px; display: flex; gap: 8px; align-items: baseline; }
+.points { color: var(--gold); font-size: 13px; }
+.entry .ico svg { width: 44px; height: 44px; display: block; margin: auto; }
+.entry.ability { grid-template-columns: 52px 1fr auto; }
+.pips { color: var(--gold); letter-spacing: 1px; font-size: 12px; }
+.pips i { font-style: normal; opacity: 0.3; }
+
+/* character and gear */
+.gear-layout { display: grid; grid-template-columns: 1fr 1.2fr; gap: 18px; }
+.equip-slots { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; }
+.equip-slot { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 4px; border-radius: 10px; min-height: 0;
+  background: rgba(255, 255, 255, 0.04); font-size: 10px; color: var(--muted); }
+.equip-slot svg { width: 100%; max-width: 52px; height: auto; display: block; }
+.equip-slot.selected, .gear-bag button.selected { outline: 2px solid var(--gold); }
+.stat-list { display: grid; grid-template-columns: 1fr auto; gap: 4px 10px; font-size: 13px; margin: 12px 0 0; }
+.stat-list dt { color: var(--muted); }
+.stat-list dd { margin: 0; font-weight: 700; text-align: right; font-variant-numeric: tabular-nums; }
+.gear-bag { display: grid; grid-template-columns: repeat(auto-fill, minmax(46px, 1fr)); gap: 6px; }
+.gear-bag button { padding: 0; min-height: 0; border: 0; background: none; aspect-ratio: 1; border-radius: 12px; }
+.gear-bag button svg { width: 100%; height: 100%; display: block; }
+.gear-bag .empty { aspect-ratio: 1; border-radius: 12px; border: 1px dashed var(--line); }
+.gear-detail { margin-top: 10px; border: 1px solid var(--line); border-radius: 12px; padding: 10px; display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
+.gear-detail .head { display: flex; gap: 10px; align-items: center; }
+.gear-detail .head svg { width: 56px; height: 56px; flex: none; display: block; }
+.gear-detail ul { margin: 0; padding-left: 18px; }
+.gear-detail .up { color: var(--green); }
+.gear-detail .down { color: var(--red); }
+.gear-detail .row { display: flex; gap: 8px; flex-wrap: wrap; }
+@media (max-width: 700px) { .gear-layout { grid-template-columns: 1fr; } }
+
+/* pets */
+.pet-card { border: 1px solid var(--line); border-radius: 12px; padding: 10px; display: flex; flex-direction: column; gap: 8px; background: rgba(255, 255, 255, 0.03); }
+.pet-card.active { border-color: var(--gold); background: rgba(242, 193, 78, 0.06); }
+.pet-card .top { display: grid; grid-template-columns: 56px 1fr auto; gap: 10px; align-items: center; }
+.pet-card .top svg { width: 56px; height: 56px; display: block; }
+.pet-card .top .body { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.pet-card .top .body small { color: var(--muted); font-size: 12px; line-height: 1.35; }
+.pet-card .bar.xp { height: 6px; }
+.pet-card .bar.xp > div { background: linear-gradient(90deg, #b07a1e, #f2c14e); }
+.pet-card .actions { display: flex; flex-direction: column; gap: 6px; }
+.pet-card .actions button { min-height: 36px; padding: 6px 12px; }
+.pet-card .skills { display: flex; flex-direction: column; gap: 6px; }
+@media (max-width: 600px) { .pet-card .top { grid-template-columns: 44px 1fr; } .pet-card .top svg { width: 44px; height: 44px; } .pet-card .actions { grid-column: 1 / -1; flex-direction: row; } }

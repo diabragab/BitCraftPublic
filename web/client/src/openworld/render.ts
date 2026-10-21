@@ -1,4 +1,8 @@
 import * as THREE from 'three';
+import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
+import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
+import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import { gltf } from '../assets';
 import { STRUCTURES, type StructureId } from './content';
 import { hash2, mulberry32 } from './noise';
@@ -104,6 +108,13 @@ export class WorldRenderer {
   private flames: Fires;
   private outline: Outline;
   private fxPlayer = new THREE.Vector3();
+  /**
+   * HDR pipeline: the scene renders into a half-float target, so colours brighter than 1
+   * survive; bloom spreads light from those, then OutputPass tone-maps (ACES) to the screen.
+   */
+  private composer: EffectComposer;
+  private bloom: UnrealBloomPass;
+  bloomEnabled = true;
   private terrainMat = new THREE.MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 1 });
   private chunks = new Map<string, THREE.Mesh>();
   private chunkQueue: [number, number][] = [];
@@ -123,6 +134,15 @@ export class WorldRenderer {
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, isMobile ? 1.5 : 2));
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    this.renderer.info.autoReset = false; // several passes per frame: count the whole frame
+    const target = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: isMobile ? 0 : 4 });
+    this.composer = new EffectComposer(this.renderer, target);
+    this.composer.addPass(new RenderPass(this.scene, this.camera));
+    // threshold above what sunlit terrain (plus translucent overlays) reaches, so only emissive
+    // HDR colours (fire, magic, glowing ore) bloom
+    this.bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), 0.55, 0.4, 1.5);
+    this.composer.addPass(this.bloom);
+    this.composer.addPass(new OutputPass());
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
     this.scene.background = this.skyDay.clone();
     this.scene.fog = new THREE.Fog(this.skyDay.clone(), 70, VIEW_CHUNKS * CHUNK + 10);
@@ -164,10 +184,16 @@ export class WorldRenderer {
     });
   }
 
+  setBloom(on: boolean) {
+    this.bloomEnabled = on;
+  }
+
   resize() {
     const w = window.innerWidth;
     const h = window.innerHeight;
     this.renderer.setSize(w, h, false);
+    this.composer.setPixelRatio(this.renderer.getPixelRatio());
+    this.composer.setSize(w, h);
     this.camera.aspect = w / h;
     this.camera.fov = w < h ? 62 : 50;
     this.camera.updateProjectionMatrix();
@@ -477,7 +503,9 @@ export class WorldRenderer {
   render() {
     const p = this.world.player;
     updateFx(performance.now() / 1000, this.fxPlayer.set(p.x, this.world.gen.height(p.x, p.z), p.z));
-    this.renderer.render(this.scene, this.camera);
+    this.renderer.info.reset();
+    if (this.bloomEnabled) this.composer.render();
+    else this.renderer.render(this.scene, this.camera);
   }
 
   drawCalls() {

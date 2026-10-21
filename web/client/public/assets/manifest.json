@@ -1,5 +1,5 @@
 {
-  "generated": "2026-10-20T22:50:37.200Z",
+  "generated": "2026-10-21T00:06:09.494Z",
   "packs": {
     "adventurers": {
       "repo": "KayKit-Character-Pack-Adventures-1.0",
@@ -27,25 +27,25 @@
       "pack": "adventurers",
       "source": "Characters/gltf/Knight.glb",
       "output": "characters/knight.glb",
-      "bytes": 521024
+      "bytes": 836416
     },
     {
       "pack": "adventurers",
       "source": "Characters/gltf/Barbarian.glb",
       "output": "characters/barbarian.glb",
-      "bytes": 509180
+      "bytes": 824548
     },
     {
       "pack": "adventurers",
       "source": "Characters/gltf/Mage.glb",
       "output": "characters/mage.glb",
-      "bytes": 504240
+      "bytes": 819608
     },
     {
       "pack": "adventurers",
       "source": "Characters/gltf/Rogue.glb",
       "output": "characters/rogue.glb",
-      "bytes": 492028
+      "bytes": 807192
     },
     {
       "pack": "skeletons",

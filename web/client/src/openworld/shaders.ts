@@ -175,8 +175,9 @@ export function crystalMaterial(material: THREE.Material, color = new THREE.Colo
     fragmentHead: 'uniform vec3 fxCrystal;',
     fragment: /* glsl */ `{
       float fresnel = pow(1.0 - clamp(dot(normal, normalize(vViewPosition)), 0.0, 1.0), 3.0);
-      totalEmissiveRadiance += fresnel * fxCrystal * 1.4 * clamp(sin(fxTime * 0.75), 0.15, 1.0);
-      totalEmissiveRadiance += fxCrystal * 0.07 * clamp(sin(fxTime * 0.75) + 0.33, 0.33, 1.0);
+      // HDR: the rim goes well past 1.0 so bloom makes the veins glint
+      totalEmissiveRadiance += fresnel * fxCrystal * 3.5 * clamp(sin(fxTime * 0.75), 0.15, 1.0);
+      totalEmissiveRadiance += fxCrystal * 0.1 * clamp(sin(fxTime * 0.75) + 0.33, 0.33, 1.0);
     }`,
   }]);
 }
@@ -357,7 +358,6 @@ export class Fires {
       name: 'hearthwild-fire',
       uniforms,
       transparent: true,
-      toneMapped: false, // keep the flame colours as authored instead of washing them out
       depthWrite: false,
       side: THREE.DoubleSide,
       fog: true,
@@ -410,7 +410,7 @@ export class Fires {
           if (alpha < 0.01) discard;
           vec3 color = mix(vec3(1.0, 0.72, 0.22), vec3(1.0, 0.32, 0.05), smoothstep(0.05, 0.5, vLife));
           color = mix(color, vec3(0.55, 0.08, 0.03), smoothstep(0.6, 1.0, vLife));
-          gl_FragColor = vec4(color, alpha);
+          gl_FragColor = vec4(color * 4.0, alpha); // HDR: bright enough to bloom
           #include <tonemapping_fragment>
           #include <colorspace_fragment>
           #include <fog_fragment>
@@ -485,7 +485,7 @@ export class Outline {
   readonly group = new THREE.Group();
   private key = '';
 
-  constructor(scene: THREE.Scene, private color = new THREE.Color('#ffd76a')) {
+  constructor(scene: THREE.Scene, private color = new THREE.Color('#ffd76a').multiplyScalar(1.8)) {
     scene.add(this.group);
   }
 
@@ -544,7 +544,7 @@ const dissolvePatch = (amount: THREE.IUniform<number>): Patch => ({
     float s = fxNoise3(vFxWorld * 1.8) * 0.65 + fxNoise3(vFxWorld * 5.0) * 0.35;
     if (s < fxDissolve) discard;
     float burn = 1.0 - smoothstep(fxDissolve, fxDissolve + 0.09, s);
-    totalEmissiveRadiance += burn * vec3(1.0, 0.45, 0.12) * 4.0 * step(0.001, fxDissolve);
+    totalEmissiveRadiance += burn * vec3(1.0, 0.45, 0.12) * 9.0 * step(0.001, fxDissolve);
   }`,
 });
 
@@ -585,9 +585,10 @@ export class Dissolver {
  * hero is drawn only where something is in front of it (depth test "greater"), after the rest
  * of the scene and before the hero itself, so the hero never x-rays through its own body.
  */
-export function addXray(root: THREE.Object3D, color = '#7fd4ff') {
+export function addXray(root: THREE.Object3D, color = new THREE.Color(0.3, 0.75, 1.2)) {
+  // kept below the bloom threshold: a glowing haze would hide the hero instead of showing it
   const material = new THREE.MeshBasicMaterial({
-    color, opacity: 0.55, depthFunc: THREE.GreaterDepth, depthWrite: false, blending: THREE.AdditiveBlending, fog: false,
+    color, opacity: 0.45, depthFunc: THREE.GreaterDepth, depthWrite: false, blending: THREE.AdditiveBlending, fog: false,
   });
   const meshes: THREE.Mesh[] = [];
   root.traverse((o) => (o as THREE.Mesh).isMesh && meshes.push(o as THREE.Mesh));

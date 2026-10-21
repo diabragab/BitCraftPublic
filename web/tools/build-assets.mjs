@@ -26,7 +26,10 @@ export const PACKS = {
 
 // Animation clips the game uses. Everything else is stripped to cut download size.
 const PLAYER_CLIPS = ['Idle', 'Running_A', '1H_Melee_Attack_Chop', '2H_Melee_Attack_Chop', 'Dualwield_Melee_Attack_Stab',
-  'Spellcast_Shoot', 'Hit_A', 'Death_A', 'Death_A_Pose', 'Cheer'];
+  'Spellcast_Shoot', 'Hit_A', 'Death_A', 'Death_A_Pose', 'Cheer',
+  // Hearthwild skills
+  '1H_Melee_Attack_Slice_Horizontal', '2H_Melee_Attack_Slice', '2H_Melee_Attack_Spin', 'Dualwield_Melee_Attack_Slice',
+  'Spellcast_Raise', 'Spellcast_Long', 'Dodge_Forward', 'Block', 'Jump_Full_Short'];
 const ENEMY_CLIPS = ['Idle', 'Running_A', 'Walking_A', '1H_Melee_Attack_Chop', '2H_Melee_Attack_Chop', 'Spellcast_Shoot',
   'Hit_A', 'Death_A', 'Death_A_Pose', 'Spawn_Ground_Skeletons'];
 

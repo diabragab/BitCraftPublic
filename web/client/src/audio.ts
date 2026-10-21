@@ -4,7 +4,9 @@
 
 export type Sfx =
   | 'chop' | 'mine' | 'swing' | 'zap' | 'hit' | 'crit' | 'hurt' | 'enemy-swing' | 'enemy-death' | 'pickup' | 'loot'
-  | 'craft' | 'build' | 'potion' | 'levelup' | 'death' | 'respawn' | 'step' | 'click' | 'error';
+  | 'craft' | 'build' | 'potion' | 'levelup' | 'death' | 'respawn' | 'step' | 'click' | 'error'
+  | 'equip' | 'learn' | 'summon' | 'nova' | 'fireball' | 'explosion' | 'frost' | 'shield' | 'buff' | 'heal' | 'dash'
+  | 'lightning' | 'taunt' | 'slash' | 'pet-zap';
 
 type Mood = 'day' | 'night';
 
@@ -409,6 +411,62 @@ export class AudioEngine {
         break;
       case 'click':
         this.tone(t, out, { freq: 1800, level: 0.05, decay: 0.03, type: 'square', lowpass: 4000 });
+        break;
+      case 'equip':
+        this.noiseHit(t, out, { type: 'bandpass', freq: 2600, q: 3, level: 0.25, decay: 0.08 });
+        this.tone(t, out, { freq: 620, level: 0.12, decay: 0.15, type: 'triangle' });
+        this.tone(t + 0.05, out, { freq: 930, level: 0.08, decay: 0.2, type: 'triangle' });
+        break;
+      case 'learn':
+        [659, 880, 1175].forEach((f, i) => this.tone(t + i * 0.06, out, { freq: f, level: 0.11, decay: 0.45, type: 'sine', reverb: true }));
+        break;
+      case 'summon':
+        this.tone(t, out, { freq: 220, to: 880, level: 0.14, decay: 0.6, type: 'triangle', reverb: true });
+        [1319, 1568, 1976].forEach((f, i) => this.tone(t + 0.25 + i * 0.07, out, { freq: f, level: 0.07, decay: 0.4, type: 'sine', reverb: true }));
+        break;
+      case 'nova':
+        this.noiseSweep(t, out, { from: 300, to: 2400, level: 0.4, dur: 0.35 });
+        this.tone(t, out, { freq: 110, to: 45, level: 0.5, decay: 0.35 });
+        break;
+      case 'slash':
+        this.noiseSweep(t, out, { from: 900, to: 4200, level: 0.4, dur: 0.16 });
+        this.tone(t + 0.04, out, { freq: 1400, to: 700, level: 0.08, decay: 0.12, type: 'sawtooth', lowpass: 3000 });
+        break;
+      case 'fireball':
+        this.noiseSweep(t, out, { from: 200, to: 1200, level: 0.35, dur: 0.3 });
+        this.tone(t, out, { freq: 160, to: 320, level: 0.18, decay: 0.3, type: 'sawtooth', lowpass: 900 });
+        break;
+      case 'explosion':
+        this.noiseHit(t, out, { type: 'lowpass', freq: 900, q: 0.7, level: 0.7, decay: 0.6 });
+        this.tone(t, out, { freq: 90, to: 30, level: 0.6, decay: 0.5 });
+        break;
+      case 'frost':
+        for (let i = 0; i < 5; i++) this.tone(t + i * 0.03, out, { freq: 2400 + Math.random() * 1800, level: 0.06, decay: 0.3, type: 'sine', reverb: true });
+        this.noiseHit(t, out, { type: 'highpass', freq: 4000, q: 0.7, level: 0.25, decay: 0.4 });
+        break;
+      case 'shield':
+        this.tone(t, out, { freq: 330, to: 660, level: 0.14, decay: 0.7, type: 'sine', reverb: true });
+        this.tone(t, out, { freq: 495, to: 990, level: 0.08, decay: 0.7, type: 'triangle', reverb: true });
+        break;
+      case 'buff':
+        [392, 494, 587, 784].forEach((f, i) => this.tone(t + i * 0.05, out, { freq: f, level: 0.1, decay: 0.5, type: 'triangle', reverb: true }));
+        break;
+      case 'heal':
+        [784, 988, 1175, 1568].forEach((f, i) => this.tone(t + i * 0.08, out, { freq: f, level: 0.08, decay: 0.6, type: 'sine', reverb: true }));
+        break;
+      case 'dash':
+        this.noiseSweep(t, out, { from: 1800, to: 300, level: 0.4, dur: 0.22 });
+        break;
+      case 'lightning':
+        for (let i = 0; i < 8; i++) this.noiseHit(t + i * 0.025, out, { type: 'bandpass', freq: 2000 + Math.random() * 4000, q: 2, level: 0.3, decay: 0.03 });
+        this.tone(t, out, { freq: 1200, to: 200, level: 0.12, decay: 0.25, type: 'sawtooth', lowpass: 5000 });
+        break;
+      case 'taunt':
+        this.tone(t, out, { freq: 140, to: 100, level: 0.3, decay: 0.5, type: 'sawtooth', lowpass: 600, reverb: true });
+        this.tone(t, out, { freq: 210, to: 150, level: 0.18, decay: 0.5, type: 'square', lowpass: 500 });
+        break;
+      case 'pet-zap':
+        this.tone(t, out, { freq: 900, to: 1500, level: 0.07, decay: 0.15, type: 'triangle' });
         break;
       case 'error':
         this.tone(t, out, { freq: 220, level: 0.1, decay: 0.12, type: 'square', lowpass: 1200 });

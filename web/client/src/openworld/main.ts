@@ -8,11 +8,15 @@ import { Input } from '../input';
 import { CLASS_IDS, CLASSES, type ClassId } from '../map';
 import { renderPortraits } from '../portraits';
 import {
-  ITEMS, MAX_LEVEL, RECIPES, RESOURCES, SKILL_IDS, SKILLS, STRUCTURE_IDS, STRUCTURES, levelFromXp, xpForLevel,
-  type ItemId, type StructureId,
+  BAG_SIZE, CLASS_SKILLS, GEAR, ITEMS, MAX_LEVEL, PET_IDS, PETS, RARITIES, RECIPES, RESOURCES, SKILL_IDS, SKILLS, SLOT_IDS, SLOTS,
+  STATS, STRUCTURE_IDS, STRUCTURES, armorFactor, formatStat, levelFromXp, petXpForLevel, rankScale, xpForLevel,
+  type Effect, type ItemId, type Mods, type PetSpecies, type SkillDef, type StatId, type StructureId,
 } from './content';
+import { gearIcon, skillIcon, slotIcon } from './icons';
+import { PetView } from './petview';
 import { WorldRenderer } from './render';
 import { Dissolver, addXray } from './shaders';
+import { Vfx } from './vfx';
 import { OpenWorld, type Enemy, type WorldEvent } from './sim';
 import { WORLD_HALF, WorldGen } from './terrain';
 
@@ -37,9 +41,9 @@ const MODELS = [
 const prefs = (() => {
   const mobile = matchMedia('(pointer: coarse)').matches;
   try {
-    return { shadows: !mobile, stats: false, music: 0.5, sfx: 0.8, grass: true, ...JSON.parse(localStorage.getItem('hearthwild.prefs') ?? '{}') };
+    return { shadows: !mobile, stats: false, music: 0.5, sfx: 0.8, grass: true, bloom: !mobile, ...JSON.parse(localStorage.getItem('hearthwild.prefs') ?? '{}') };
   } catch {
-    return { shadows: !mobile, stats: false, music: 0.5, sfx: 0.8, grass: true };
+    return { shadows: !mobile, stats: false, music: 0.5, sfx: 0.8, grass: true, bloom: !mobile };
   }
 })();
 const savePrefs = () => {
@@ -168,6 +172,8 @@ function startGame(name: string, cls: ClassId, saved: ReturnType<typeof OpenWorl
   const r = new WorldRenderer(canvas, world);
   r.setShadows(prefs.shadows);
   r.setGrass(prefs.grass);
+  r.setBloom(prefs.bloom);
+  const vfx = new Vfx(r.scene, (x, z) => world.gen.height(x, z));
   const input = new Input(canvas);
   input.enabled = true;
   const islandImage = renderIslandImage(world.gen);
@@ -189,6 +195,27 @@ function startGame(name: string, cls: ClassId, saved: ReturnType<typeof OpenWorl
     enemyViews.set(e.id, { view, seen: { attack: e.attackSeq, hit: e.hitSeq } });
   };
   for (const e of world.enemies.values()) addEnemyView(e);
+
+  // ---- pet
+  let petView: PetView | null = null;
+  const petLabel = (sp: PetSpecies) => `${PETS[sp].name} · Lv ${world.petLevel(world.pets.get(sp)!)}`;
+  const showPet = () => {
+    const pet = world.pet();
+    if (petView && (!pet || petView.species !== pet.species)) {
+      petView.dispose();
+      petView = null;
+    }
+    if (pet && !petView) {
+      petView = new PetView(pet.species, petLabel(pet.species));
+      petView.target.set(pet.x, world.gen.height(pet.x, pet.z), pet.z);
+      petView.snap();
+      r.scene.add(petView.root);
+    }
+  };
+  showPet();
+  const ALL_SKILLS = new Map<string, SkillDef>(
+    [...Object.values(CLASS_SKILLS).flat(), ...PET_IDS.flatMap((sp) => PETS[sp].skills)].map((d) => [d.id, d]),
+  );
 
   // ---- HUD helpers
   const feed = (text: string) => {
@@ -225,18 +252,72 @@ function startGame(name: string, cls: ClassId, saved: ReturnType<typeof OpenWorl
     if (delay) setTimeout(() => audio.play(name, v), delay);
     else audio.play(name, v);
   };
-  const FLOAT_SFX: Record<string, Sfx> = { '': 'hit', crit: 'crit', player: 'hurt', heal: 'potion', gain: 'pickup' };
+  const FLOAT_SFX: Record<string, Sfx> = { '': 'hit', crit: 'crit', player: 'hurt', heal: 'potion', gain: 'pickup', pet: 'hit', shield: 'equip' };
   world.onEvent = (e: WorldEvent) => {
     switch (e.type) {
       case 'float':
         floatText(e.x, e.z, e.text, e.style);
-        sfxAt(FLOAT_SFX[e.style], e.x, e.z);
+        if (e.style !== 'pet') sfxAt(FLOAT_SFX[e.style], e.x, e.z);
         break;
+      case 'skill': {
+        const def = ALL_SKILLS.get(e.id);
+        if (e.who === 'player' && e.clip) hero.play(e.clip);
+        const tx = e.tx ?? e.x;
+        const tz = e.tz ?? e.z;
+        switch (e.kind) {
+          case 'nova': vfx.ring(e.x, e.z, e.radius ?? 3, e.element); sfxAt(e.element === 'frost' ? 'frost' : 'nova', e.x, e.z); break;
+          case 'cone': vfx.slash(e.x, e.z, e.facing, e.radius ?? 3, def?.effect.kind === 'cone' ? def.effect.arc : 1, e.element); sfxAt('slash', e.x, e.z); break;
+          case 'bolt':
+            vfx.projectile(e.x, e.z, tx, tz, e.element, 24, 0.3, () => {
+              vfx.ring(tx, tz, e.radius ?? 2, e.element, 0.45);
+              sfxAt('explosion', tx, tz);
+            });
+            sfxAt(e.element === 'fire' ? 'fireball' : 'zap', e.x, e.z);
+            break;
+          case 'dash': vfx.trail(e.x, e.z, tx, tz, e.element); vfx.ring(tx, tz, e.radius ?? 1.4, e.element, 0.4); sfxAt('dash', tx, tz); break;
+          case 'meteor': vfx.meteor(tx, tz, e.radius ?? 4, e.element, e.delay ?? 900); sfxAt('fireball', e.x, e.z); break;
+          case 'chain': vfx.lightning(e.points ?? [], e.element); sfxAt('lightning', e.x, e.z); break;
+          case 'buff': vfx.column(e.x, e.z, e.element); sfxAt(def?.effect.kind === 'buff' && def.effect.shield ? 'shield' : 'buff', e.x, e.z); break;
+          case 'heal': vfx.column(e.x, e.z, e.element, true); sfxAt('heal', e.x, e.z); break;
+          case 'taunt': vfx.ring(e.x, e.z, e.radius ?? 5, 'blood'); sfxAt('taunt', e.x, e.z); break;
+        }
+        break;
+      }
+      case 'skill-impact': vfx.ring(e.x, e.z, e.radius, e.element); sfxAt('explosion', e.x, e.z); break;
+      case 'pet-summon': {
+        showPet();
+        const pet = world.pet();
+        if (pet) vfx.column(pet.x, pet.z, PETS[pet.species].element);
+        break;
+      }
+      case 'pet-dismiss':
+        petView?.dispose();
+        petView = null;
+        break;
+      case 'pet-attack':
+        if (PETS[e.species].look === 'sprite') {
+          vfx.projectile(e.x, e.z, e.tx, e.tz, PETS[e.species].element, 20, 0.14);
+          sfxAt('pet-zap', e.x, e.z);
+        } else sfxAt('swing', e.x, e.z);
+        break;
+      case 'pet-down': toast('Your pet was knocked out'); break;
+      case 'pet-up': {
+        const pet = world.pet();
+        if (pet) vfx.column(pet.x, pet.z, PETS[pet.species].element);
+        toast('Your pet is back on its feet');
+        break;
+      }
+      case 'pet-level':
+        toast(`${PETS[e.species].name} reached level ${e.level}: new pet skill point`);
+        audio.play('levelup');
+        petView?.setLabel(petLabel(e.species));
+        break;
+      case 'gear': if (e.how === 'drop') sfxAt('pickup', world.player.x, world.player.z); break;
       case 'sound': sfxAt(e.name, e.x, e.z); break;
       case 'feed': feed(e.text); break;
       case 'toast': toast(e.text); break;
       case 'level':
-        toast(`${SKILLS[e.skill].name} reached level ${e.level}!`);
+        toast(e.skill === 'combat' ? `Combat level ${e.level}: new skill point (Skills, K)` : `${SKILLS[e.skill].name} reached level ${e.level}!`);
         feed(`${SKILLS[e.skill].icon} ${SKILLS[e.skill].name} level ${e.level}`);
         hero.play('Cheer');
         audio.play('levelup');
@@ -310,6 +391,11 @@ function startGame(name: string, cls: ClassId, saved: ReturnType<typeof OpenWorl
     const err = world.attack(aimFacing());
     if (err && err !== 'cooldown') toast(err, 'error');
   };
+  const castSkill = (i: number) => {
+    if (build || document.querySelector('.modal:not(.hidden)')) return;
+    const err = world.useSkill(i, aimFacing());
+    if (err && err !== 'cooldown') toast(err, 'error');
+  };
   const doInteract = () => {
     const err = world.interact();
     if (err) toast(err, 'error');
@@ -340,12 +426,14 @@ function startGame(name: string, cls: ClassId, saved: ReturnType<typeof OpenWorl
     build = null;
     r.setGhost(null);
     $('build-bar').hidden = true;
+    $('hotbar').hidden = false;
   };
   const startBuild = (type: StructureId) => {
     closePanels();
     build = { type, rot: 0, x: 0, z: 0, ok: false };
     r.setGhost(type);
     $('build-bar').hidden = false;
+    $('hotbar').hidden = true;
     $('build-text').textContent = `Placing: ${STRUCTURES[type].name}`;
   };
   $('btn-place').onclick = placeBuild;
@@ -357,7 +445,7 @@ function startGame(name: string, cls: ClassId, saved: ReturnType<typeof OpenWorl
   });
 
   // ---- panels
-  const panels = ['inventory', 'crafting', 'build', 'skills', 'map', 'menu'] as const;
+  const panels = ['inventory', 'crafting', 'build', 'skills', 'gear', 'pets', 'map', 'menu'] as const;
   type Panel = (typeof panels)[number];
   const closePanels = () => panels.forEach((p) => $(`panel-${p}`).classList.add('hidden'));
   const openPanel = (p: Panel) => {
@@ -408,8 +496,12 @@ function startGame(name: string, cls: ClassId, saved: ReturnType<typeof OpenWorl
         row.className = `entry ${problem ? 'locked' : ''}`;
         const needs = [rec.station ? `${rec.station === 'forge' ? '⚒ Forge' : '🛠 Workbench'}` : '', rec.skill ? `${SKILLS[rec.skill.id].name} ${rec.skill.level}` : '']
           .filter(Boolean).join(' · ');
-        row.innerHTML = `<div class="ico">${ITEMS[rec.output].icon}</div><div class="body"><b>${esc(ITEMS[rec.output].name)}${rec.count > 1 ? ` ×${rec.count}` : ''}</b>
-          <small>${esc(ITEMS[rec.output].desc)}${needs ? ` Needs: ${esc(needs)}.` : ''}</small>
+        const out = rec.gear
+          ? { icon: gearIcon(rec.gear, 0, 40), name: GEAR[rec.gear].name,
+            desc: `${SLOTS[GEAR[rec.gear].slot].name} gear: ${statLine(GEAR[rec.gear].base)}. Higher crafting can make finer pieces.` }
+          : { icon: ITEMS[rec.output!].icon, name: ITEMS[rec.output!].name, desc: ITEMS[rec.output!].desc };
+        row.innerHTML = `<div class="ico">${out.icon}</div><div class="body"><b>${esc(out.name)}${rec.count > 1 ? ` ×${rec.count}` : ''}</b>
+          <small>${esc(out.desc)}${needs ? ` Needs: ${esc(needs)}.` : ''}</small>
           <div class="reqs">${Object.entries(rec.inputs).map(([i, n]) => req(i as ItemId, n ?? 0)).join('')}</div></div>`;
         const btn = document.createElement('button');
         btn.className = 'primary';
@@ -446,6 +538,20 @@ function startGame(name: string, cls: ClassId, saved: ReturnType<typeof OpenWorl
       }
     }
     if (p === 'skills') {
+      const points = world.skillPoints();
+      $('skill-points').textContent = points > 0 ? `${points} point${points > 1 ? 's' : ''} to spend` : 'no points to spend';
+      const list = $('ability-list');
+      list.innerHTML = '';
+      world.classSkills().forEach((def, i) => {
+        const rank = world.skillRank(def.id);
+        const problem = world.canLearn(def.id);
+        list.appendChild(skillRow(def, rank, `Key ${i + 1}`, 'player', problem, () => {
+          const err = world.learnSkill(def.id);
+          if (err) toast(err, 'error');
+          drawHotbar();
+          renderPanel('skills');
+        }, `combat level ${def.unlock}`));
+      });
       const el = $('skills-list');
       el.innerHTML = '';
       for (const id of SKILL_IDS) {
@@ -462,7 +568,237 @@ function startGame(name: string, cls: ClassId, saved: ReturnType<typeof OpenWorl
         el.appendChild(row);
       }
     }
+    if (p === 'gear') renderGear();
+    if (p === 'pets') renderPets();
     if (p === 'map') drawMap($<HTMLCanvasElement>('world-map'), 1);
+  }
+
+  // ---- shared panel helpers
+  const statLine = (m: Mods) => Object.entries(m).map(([id, v]) => formatStat(id as StatId, v ?? 0)).join(', ');
+  const pctText = (v: number) => `${Math.round(v * 1000) / 10}%`;
+  function effectText(fx: Effect, rank: number, who: 'player' | 'pet') {
+    const k = rankScale(rank || 1);
+    const of = (m: number) => `${Math.round(m * k * 100)}% ${who === 'player' ? 'of your' : 'of its'} damage`;
+    const extra = (o: { stun?: number; slow?: number; burn?: number }) =>
+      `${o.stun ? `, stuns ${o.stun / 1000} s` : ''}${o.slow ? `, slows ${o.slow / 1000} s` : ''}${o.burn ? `, burns ${o.burn / 1000} s` : ''}`;
+    switch (fx.kind) {
+      case 'nova': return `${of(fx.mult)} within ${fx.radius} m${fx.at === 'target' ? ' of its target' : ''}${extra(fx)}`;
+      case 'cone': return `${of(fx.mult)} in front, ${fx.range} m${extra(fx)}${fx.execute ? `, double below ${fx.execute * 100}% health` : ''}`;
+      case 'bolt': return `${of(fx.mult)}, explodes over ${fx.blast} m${extra(fx)}`;
+      case 'dash': return `${fx.distance} m dash, ${of(fx.mult)} to everything passed${fx.blast ? ` and within ${fx.blast} m of the landing` : ''}`;
+      case 'meteor': return `${of(fx.mult)} within ${fx.radius} m after ${fx.delay / 1000} s${extra(fx)}`;
+      case 'chain': return `${of(fx.mult)}, jumps to ${fx.jumps} more enemies${extra(fx)}`;
+      case 'buff': {
+        const mods: Mods = {};
+        for (const [id, v] of Object.entries(fx.mods)) mods[id as StatId] = (v ?? 0) * k;
+        const parts = [statLine(mods), fx.shield ? `absorbs ${Math.round(fx.shield * k)} damage` : ''].filter(Boolean).join(', ');
+        return `${parts} for ${fx.duration / 1000} s${fx.party ? ' (you and your pet)' : ''}`;
+      }
+      case 'heal': return `heals ${Math.round(fx.pct * k * 100)}% of your health${fx.party ? ' and the pet\'s' : ''}`;
+      case 'taunt': return `enemies within ${fx.radius} m attack it for ${((fx.duration * k) / 1000).toFixed(1)} s`;
+    }
+  }
+  function skillRow(def: SkillDef, rank: number, tag: string, who: 'player' | 'pet', problem: string | null, learn: () => void, unlockText: string) {
+    const row = document.createElement('div');
+    row.className = `entry ability ${rank ? '' : 'locked'}`;
+    const pips = Array.from({ length: def.maxRank }, (_, i) => (i < rank ? '●' : '<i>●</i>')).join('');
+    row.innerHTML = `<div class="ico">${skillIcon(def.glyph, def.element, 44, !rank)}</div><div class="body"><b>${esc(def.name)} <span class="pips">${pips}</span></b>
+      <small>${esc(def.desc)} ${esc(effectText(def.effect, rank, who))}. Cooldown ${def.cooldown / 1000} s.${tag ? ` ${esc(tag)}.` : ''}</small>
+      ${!rank ? `<small>Unlocks at ${esc(unlockText)}.</small>` : ''}</div>`;
+    const btn = document.createElement('button');
+    btn.className = 'primary';
+    btn.textContent = rank ? (rank >= def.maxRank ? 'Max' : 'Upgrade') : 'Learn';
+    btn.disabled = !!problem;
+    btn.title = problem ?? '';
+    btn.onclick = learn;
+    row.appendChild(btn);
+    return row;
+  }
+
+  // ---- character and gear panel
+  let selectedGear: string | null = null;
+  function renderGear() {
+    const slots = $('equip-slots');
+    slots.innerHTML = '';
+    for (const slot of SLOT_IDS) {
+      const uid = world.player.equipped[slot];
+      const item = uid ? world.player.gear.find((g) => g.uid === uid) : undefined;
+      const b = document.createElement('button');
+      b.className = `equip-slot ${item && item.uid === selectedGear ? 'selected' : ''}`;
+      b.title = item ? GEAR[item.base].name : `${SLOTS[slot].name}: empty`;
+      b.innerHTML = `${item ? gearIcon(item.base, item.rarity, 52) : slotIcon(SLOTS[slot].glyph, 52)}<span>${SLOTS[slot].name}</span>`;
+      b.onclick = () => {
+        selectedGear = item?.uid ?? null;
+        renderGear();
+      };
+      slots.appendChild(b);
+    }
+    const st = world.stats();
+    const rows: [string, string][] = [
+      ['Max health', String(world.maxHp())],
+      ['Damage per hit', String(Math.round(world.attackDamage(st)))],
+      ['Attacks per second', (1000 / world.attackCooldown(st)).toFixed(2)],
+      ['Critical chance', pctText(world.critChance(st))],
+      ['Armor', `${Math.round(st.armor ?? 0)} (−${Math.round((1 - armorFactor(st.armor ?? 0)) * 100)}% damage)`],
+      ['Move speed', `${world.moveSpeed(st).toFixed(1)} m/s`],
+      ['Health per second', (st.regen ?? 0).toFixed(1)],
+      ['Life steal', pctText(st.lifesteal ?? 0)],
+      ['Skill power', pctText(st.power ?? 0)],
+      ['Pet power', pctText(st.petPower ?? 0)],
+    ];
+    $('stat-list').innerHTML = rows.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('');
+    const bag = world.player.gear.filter((g) => !world.isEquipped(g.uid))
+      .sort((a, b) => SLOT_IDS.indexOf(GEAR[a.base].slot) - SLOT_IDS.indexOf(GEAR[b.base].slot) || b.rarity - a.rarity || b.ilvl - a.ilvl);
+    $('bag-count').textContent = `${bag.length} / ${BAG_SIZE}`;
+    const grid = $('gear-bag');
+    grid.innerHTML = '';
+    for (const item of bag) {
+      const b = document.createElement('button');
+      b.className = item.uid === selectedGear ? 'selected' : '';
+      b.title = `${RARITIES[item.rarity].name} ${GEAR[item.base].name}`;
+      b.innerHTML = gearIcon(item.base, item.rarity, 48);
+      b.onclick = () => {
+        selectedGear = item.uid;
+        renderGear();
+      };
+      grid.appendChild(b);
+    }
+    for (let i = bag.length; i < BAG_SIZE; i++) grid.insertAdjacentHTML('beforeend', '<div class="empty"></div>');
+    renderGearDetail();
+  }
+  function renderGearDetail() {
+    const box = $('gear-detail');
+    const item = selectedGear ? world.player.gear.find((g) => g.uid === selectedGear) : undefined;
+    if (!item) {
+      box.innerHTML = '<p class="muted small">Pick a piece of gear to see it. Skeletons drop gear and ruin chests always hold some; better pieces have extra stats.</p>';
+      return;
+    }
+    const def = GEAR[item.base];
+    const worn = world.isEquipped(item.uid);
+    const current = world.equippedItems().find((g) => GEAR[g.base].slot === def.slot && g.uid !== item.uid);
+    const ids = new Set([...Object.keys(item.stats), ...Object.keys(current?.stats ?? {})]) as Set<StatId>;
+    const lines = [...ids].map((id) => {
+      const v = item.stats[id] ?? 0;
+      const delta = current ? v - (current.stats[id] ?? 0) : 0;
+      const cmp = current && Math.abs(delta) > 1e-6
+        ? ` <span class="${delta > 0 ? 'up' : 'down'}">(${delta > 0 ? '+' : '−'}${STATS[id].pct ? pctText(Math.abs(delta)) : Math.round(Math.abs(delta) * 10) / 10})</span>`
+        : '';
+      return v ? `<li>${esc(formatStat(id, v))}${cmp}</li>` : `<li class="muted">${esc(STATS[id].name)} —${cmp}</li>`;
+    });
+    box.innerHTML = `<div class="head">${gearIcon(item.base, item.rarity, 56)}<div><b style="color:${RARITIES[item.rarity].css}">${esc(def.name)}</b>
+      <div class="muted small">${RARITIES[item.rarity].name} ${SLOTS[def.slot].name.toLowerCase()} · item level ${item.ilvl}${worn ? ' · equipped' : ''}</div></div></div>
+      <ul>${lines.join('')}</ul>${current && !worn ? '<p class="muted small">Compared with what you wear now.</p>' : ''}<div class="row"></div>`;
+    const row = box.querySelector('.row')!;
+    const act = (label: string, cls: string, fn: () => string | null) => {
+      const b = document.createElement('button');
+      b.className = cls;
+      b.textContent = label;
+      b.onclick = () => {
+        const err = fn();
+        if (err) toast(err, 'error');
+        renderGear();
+      };
+      row.appendChild(b);
+    };
+    if (worn) act('Unequip', 'ghost', () => world.unequip(def.slot));
+    else act('Equip', 'primary', () => world.equip(item.uid));
+    act(`Salvage (+${world.gearValue(item)} gold)`, 'ghost danger', () => {
+      const err = world.salvage(item.uid);
+      if (!err) selectedGear = null;
+      return err;
+    });
+  }
+
+  // ---- pets panel
+  let openPet: PetSpecies | null = world.activePet;
+  function renderPets() {
+    const list = $('pet-list');
+    list.innerHTML = '';
+    for (const sp of PET_IDS) {
+      const def = PETS[sp];
+      const pet = world.pets.get(sp);
+      const card = document.createElement('div');
+      card.className = `pet-card ${world.activePet === sp ? 'active' : ''}`;
+      let info: string;
+      if (pet) {
+        const lvl = world.petLevel(pet);
+        const from = petXpForLevel(lvl);
+        const to = petXpForLevel(lvl + 1);
+        const down = pet.hp <= 0 ? ` · knocked out, back in ${Math.max(0, Math.ceil((pet.downUntil - Date.now()) / 1000))} s` : '';
+        info = `<small>Level ${lvl} · ${Math.ceil(pet.hp)} / ${world.petMaxHp(pet)} health${down}</small>
+          <div class="bar xp"><div style="width:${Math.round(((pet.xp - from) / Math.max(1, to - from)) * 100)}%"></div></div>
+          <small>Aura ${esc(def.aura.name)}: ${esc(statLine(world.petAura(pet)))} for you while it is out.</small>`;
+      } else {
+        info = `<small>Bond it with a ${ITEMS[def.charm].icon} ${esc(ITEMS[def.charm].name.toLowerCase())} (you have ${world.count(def.charm)}). Craft one at a ${
+          RECIPES.find((r) => r.output === def.charm)?.station ?? 'workbench'}.</small><small>Aura ${esc(def.aura.name)}: ${esc(statLine(def.aura.base))}, growing with its level.</small>`;
+      }
+      card.innerHTML = `<div class="top">${skillIcon(def.glyph, def.element, 56, !pet)}<div class="body"><b>${esc(def.name)} <span class="muted">${def.role}</span></b>
+        <small>${esc(def.desc)}</small>${info}</div><div class="actions"></div></div>`;
+      const actions = card.querySelector('.actions')!;
+      const button = (label: string, cls: string, fn: () => string | null, disabled = false) => {
+        const b = document.createElement('button');
+        b.className = cls;
+        b.textContent = label;
+        b.disabled = disabled;
+        b.onclick = () => {
+          const err = fn();
+          if (err) toast(err, 'error');
+          renderPets();
+        };
+        actions.appendChild(b);
+      };
+      if (!pet) button('Bond', 'primary', () => world.bondPet(sp), world.count(def.charm) <= 0);
+      else {
+        if (world.activePet === sp) button('Dismiss', 'ghost', () => world.summonPet(null));
+        else button('Summon', 'primary', () => world.summonPet(sp));
+        const pts = world.petSkillPoints(pet);
+        button(`Skills${pts > 0 ? ` (${pts})` : ''}`, 'ghost', () => {
+          openPet = openPet === sp ? null : sp;
+          return null;
+        });
+      }
+      if (pet && openPet === sp) {
+        const skills = document.createElement('div');
+        skills.className = 'skills';
+        for (const sk of def.skills) {
+          skills.appendChild(skillRow(sk, pet.skills[sk.id] ?? 0, '', 'pet', world.canLearnPetSkill(sp, sk.id), () => {
+            const err = world.learnPetSkill(sp, sk.id);
+            if (err) toast(err, 'error');
+            renderPets();
+          }, `pet level ${sk.unlock}`));
+        }
+        card.appendChild(skills);
+      }
+      list.appendChild(card);
+    }
+  }
+
+  // ---- hotbar
+  const hotButtons = [...document.querySelectorAll<HTMLButtonElement>('#hotbar .hot')];
+  function drawHotbar() {
+    world.classSkills().forEach((def, i) => {
+      const b = hotButtons[i];
+      const rank = world.skillRank(def.id);
+      b.innerHTML = `${skillIcon(def.glyph, def.element, 58, !rank)}<span class="key">${i + 1}</span>${rank ? `<span class="rank">${rank}</span>` : ''}<span class="cd"></span>`;
+      b.title = `${def.name}${rank ? ` (rank ${rank})` : ': not learned yet'}. ${def.desc}`;
+      b.setAttribute('aria-label', b.title);
+      b.classList.toggle('locked', !rank);
+    });
+  }
+  hotButtons.forEach((b, i) => b.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    castSkill(i);
+  }));
+  drawHotbar();
+  function updateHotbar(now: number) {
+    world.classSkills().forEach((def, i) => {
+      const left = world.cooldownLeft(def.id, now);
+      const cd = hotButtons[i].querySelector<HTMLElement>('.cd');
+      if (!cd) return;
+      cd.style.setProperty('--cd', String(left / def.cooldown));
+      cd.textContent = left > 0 ? String(Math.ceil(left / 1000)) : '';
+      hotButtons[i].classList.toggle('ready', !!world.skillRank(def.id) && left === 0);
+    });
   }
 
   const toMap = (x: number, z: number, size: number) => [((x + WORLD_HALF) / (WORLD_HALF * 2)) * size, ((z + WORLD_HALF) / (WORLD_HALF * 2)) * size];
@@ -532,8 +868,9 @@ function startGame(name: string, cls: ClassId, saved: ReturnType<typeof OpenWorl
       return;
     }
     if (k === 'e') doInteract();
+    if (k >= '1' && k <= '4') castSkill(Number(k) - 1);
     if (k === 'r' && build) build.rot += Math.PI / 4;
-    const map: Record<string, Panel> = { i: 'inventory', c: 'crafting', b: 'build', k: 'skills', m: 'map' };
+    const map: Record<string, Panel> = { i: 'inventory', c: 'crafting', b: 'build', g: 'gear', k: 'skills', p: 'pets', m: 'map' };
     if (map[k]) openPanel(map[k]);
   };
 
@@ -560,6 +897,13 @@ function startGame(name: string, cls: ClassId, saved: ReturnType<typeof OpenWorl
   grass.onchange = () => {
     prefs.grass = grass.checked;
     r.setGrass(prefs.grass);
+    savePrefs();
+  };
+  const bloom = $<HTMLInputElement>('opt-bloom');
+  bloom.checked = prefs.bloom;
+  bloom.onchange = () => {
+    prefs.bloom = bloom.checked;
+    r.setBloom(prefs.bloom);
     savePrefs();
   };
   const stats = $<HTMLInputElement>('opt-stats');
@@ -667,6 +1011,31 @@ function startGame(name: string, cls: ClassId, saved: ReturnType<typeof OpenWorl
       ev.seen = { attack: e.attackSeq, hit: e.hitSeq };
       ev.view.update(dt);
     }
+    // pet
+    const pet = world.pet();
+    if (petView && pet) {
+      petView.target.set(pet.x, world.gen.height(pet.x, pet.z), pet.z);
+      petView.facing = pet.facing;
+      petView.moving = pet.moving;
+      petView.setHealth(pet.hp, world.petMaxHp(pet));
+      petView.update(dt, pet.hp > 0, pet.attackSeq, pet.hitSeq);
+    }
+    // effects and status markers
+    vfx.update(dt);
+    const nowMs = Date.now();
+    const marks: { x: number; z: number; y: number; stunned: boolean; slowed: boolean; burning: boolean }[] = [];
+    for (const [id, ev] of enemyViews) {
+      const e = world.enemies.get(id);
+      if (!e || !e.alive || !ev.view.root.visible) continue;
+      const stunned = e.stunUntil > nowMs;
+      const slowed = e.slowUntil > nowMs;
+      if (stunned || slowed || e.burn) {
+        const pos = ev.view.root.position;
+        marks.push({ x: pos.x, z: pos.z, y: pos.y, stunned, slowed, burning: !!e.burn });
+      }
+    }
+    const shield = p.shield && p.shield.until > nowMs ? p.shield.amount / Math.max(1, p.shield.max) : 0;
+    vfx.follow(hero.root.position, shield, p.buffs.at(-1)?.element ?? null, marks);
     for (const b of [...bolts]) if (!b.update(dt)) {
       b.mesh.removeFromParent();
       bolts.splice(bolts.indexOf(b), 1);
@@ -698,16 +1067,35 @@ function startGame(name: string, cls: ClassId, saved: ReturnType<typeof OpenWorl
     r.updateDayNight(camTarget);
     r.render();
     hero.placePlate(r.camera, w(), h());
+    petView?.placePlate(r.camera, w(), h());
     for (const ev of enemyViews.values()) if (ev.view.root.visible) ev.view.placePlate(r.camera, w(), h());
 
     // HUD
-    const cd = Math.min(1, (Date.now() - p.lastAttack) / clsDef.cooldown);
+    const cd = Math.min(1, (Date.now() - p.lastAttack) / world.attackCooldown());
     $('hud-cd-fill').style.width = `${cd * 100}%`;
     hudTimer += dt;
     if (hudTimer > 0.1) {
       hudTimer = 0;
       const max = world.maxHp();
       $('hud-hp-fill').style.width = `${(p.hp / max) * 100}%`;
+      $('hud-shield-fill').style.width = `${Math.min(100, ((p.shield?.amount ?? 0) / max) * 100)}%`;
+      const now = Date.now();
+      $('hud-buffs').innerHTML = p.buffs.filter((b) => b.until > now)
+        .map((b) => `<span class="buff" title="${esc(b.name)}">${skillIcon(b.glyph, b.element, 22)}<b>${Math.ceil((b.until - now) / 1000)}</b></span>`).join('');
+      updateHotbar(now);
+      const pet = world.pet();
+      $('hud-pet').hidden = !pet;
+      if (pet) {
+        const def = PETS[pet.species];
+        const icon = $('hud-pet-icon');
+        if (icon.dataset.species !== pet.species) {
+          icon.dataset.species = pet.species;
+          icon.innerHTML = skillIcon(def.glyph, def.element, 24);
+        }
+        $('hud-pet-name').textContent = pet.hp > 0 ? `${def.name} · Lv ${world.petLevel(pet)}` : `${def.name} · back in ${Math.max(0, Math.ceil((pet.downUntil - now) / 1000))} s`;
+        $('hud-pet-fill').style.width = `${(pet.hp / world.petMaxHp(pet)) * 100}%`;
+        petView?.setLabel(petLabel(pet.species));
+      }
       $('hud-hp-text').textContent = `${Math.ceil(p.hp)} / ${max}`;
       $('hud-gold').textContent = String(p.gold);
       $('hud-potions-touch').textContent = String(world.count('potion'));
@@ -763,10 +1151,15 @@ function startGame(name: string, cls: ClassId, saved: ReturnType<typeof OpenWorl
     world,
     renderer: r,
     audio,
+    vfx,
+    pet: () => petView,
     snapshot: () => ({
       x: world.player.x, z: world.player.z, hp: world.player.hp, alive: world.player.alive, gold: world.player.gold,
       inv: { ...world.player.inv }, xp: { ...world.player.xp }, gathering: !!world.player.gather, structures: world.structures.length,
       target: world.interactTarget()?.type ?? null, chunks: r.pendingChunks(), drawCalls: r.drawCalls(),
+      skills: { ...world.player.skills }, points: world.skillPoints(), gear: world.player.gear.length,
+      equipped: { ...world.player.equipped }, maxHp: world.maxHp(), damage: world.attackDamage(),
+      pet: world.pet() ? { species: world.pet()!.species, level: world.petLevel(world.pet()!), hp: world.pet()!.hp, x: world.pet()!.x, z: world.pet()!.z, xp: world.pet()!.xp } : null,
     }),
   };
 }
