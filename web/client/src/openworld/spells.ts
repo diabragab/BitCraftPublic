@@ -39,6 +39,7 @@ export class Spells {
   private aura: FixtureRun | null = null;
   private auraElement: Element | null = null;
   private dissolves = 0;
+  private shieldTarget = 0;
 
   constructor(private fx: FXSystem, private height: (x: number, z: number) => number) {}
 
@@ -56,16 +57,21 @@ export class Spells {
     return a;
   }
 
+  /** Ground height under a point or an object. */
+  private ground(a: THREE.Vector3 | THREE.Object3D) {
+    const p = a instanceof THREE.Vector3 ? a : a.getWorldPosition(new THREE.Vector3());
+    return this.height(p.x, p.z);
+  }
+
   play(def: EffectDef, from: THREE.Vector3 | THREE.Object3D, to: THREE.Vector3 | THREE.Object3D, o: { scale?: number; floorY?: number } = {}): FXHandle {
-    const ground = o.floorY ?? (to instanceof THREE.Vector3 ? this.height(to.x, to.z) : (to as THREE.Object3D).getWorldPosition(new THREE.Vector3()).y - CHEST);
-    return this.fx.play(def, { from, to, scale: o.scale, floorY: ground });
+    return this.fx.play(def, { from, to, scale: o.scale, floorY: o.floorY ?? this.ground(to) });
   }
 
   /**
    * One skill cast. `caster` is the caster's chest anchor; `target` where it lands (a point
    * from the sim, or the caster for self buffs).
    */
-  skill(id: string, el: Element, caster: THREE.Object3D, target: { x: number; z: number } | null, facing: number, radius = 3) {
+  skill(id: string, el: Element, caster: THREE.Object3D, target: { x: number; z: number } | null, facing: number, radius = 3, start?: { x: number; z: number }, ally?: THREE.Object3D) {
     const l = SKILL_LOOKS[id];
     if (!l) return null;
     const def = look(l.recipe, el, l);
@@ -75,11 +81,19 @@ export class Spells {
     let to: THREE.Vector3;
     switch (l.recipe) {
       case 'buff':
-        return this.play(def, caster, caster, { floorY: origin.y - CHEST });
+        return this.play(def, caster, caster);
+      case 'heal':
+        // light flies from the caster to the one it heals (the hero, for pets' heals too)
+        return this.play(def, caster, ally ?? caster);
       case 'nova':
         // the ring is centred on the caster's feet and reaches 1.2 m past `to`
         to = ahead(Math.max(0.5, radius - 1.2));
-        return this.play(def, caster, to, { floorY: origin.y - CHEST });
+        return this.play(def, caster, to, { floorY: this.ground(caster) });
+      case 'dash':
+      case 'tackle':
+        // the sim has already moved the caster: charge from where the dash started
+        if (start && target) return this.play(def, this.at(start.x, start.z), this.at(target.x, target.z), { scale: l.scale });
+        break;
       case 'spin':
         return this.play(def, caster, ahead(2), { scale: l.scale });
       default:
@@ -117,8 +131,7 @@ export class Spells {
 
   /** A burst on a pet when it is summoned or gets back up. */
   burst(el: Element, anchor: THREE.Object3D) {
-    const p = anchor.getWorldPosition(new THREE.Vector3());
-    return this.play(look('buff', el), anchor, anchor, { floorY: p.y - CHEST, scale: 0.7 });
+    return this.play(look('buff', el), anchor, anchor, { scale: 0.7 });
   }
 
   // ---- statuses
@@ -165,7 +178,8 @@ export class Spells {
   heroShield(root: THREE.Object3D, amount: number, el: Element) {
     if (amount > 0) {
       if (!this.shield?.alive) this.shield = this.fx.status(root, 'shield', { element: FX_ELEMENT[el].element, progress: amount });
-      else if (Math.abs(this.shield.progress - amount) > 0.01) this.shield.to(amount, 0.2);
+      else if (Math.abs(this.shieldTarget - amount) > 0.01) this.shield.to(amount, 0.2);
+      this.shieldTarget = amount;
     } else if (this.shield) {
       this.shield.stop(); // it shatters
       this.shield = null;

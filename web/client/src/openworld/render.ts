@@ -560,7 +560,8 @@ export class WorldRenderer {
     this.camera.updateMatrixWorld();
     // debris (rocks, shards) lands on one global floor: keep it under the action
     this.fx.floorY = ground;
-    this.fx.update(Math.min(dt, 0.05));
+    // same clamp as the game loop, so effects keep pace with the sim's (wall-clock) damage timing
+    this.fx.update(Math.min(dt, 0.1));
     this.renderer.info.reset();
     this.fx.render();
   }

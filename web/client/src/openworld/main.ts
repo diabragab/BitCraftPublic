@@ -9,7 +9,7 @@ import { Input } from '../input';
 import { CLASS_IDS, CLASSES, type ClassId } from '../map';
 import { renderPortraits } from '../portraits';
 import {
-  BAG_SIZE, CLASS_SKILLS, GEAR, ITEMS, MAX_LEVEL, PET_IDS, PETS, RARITIES, RECIPES, RESOURCES, SKILL_IDS, SKILLS, SLOT_IDS, SLOTS,
+  BAG_SIZE, CLASS_SKILLS, ENEMY_KINDS, GEAR, ITEMS, MAX_LEVEL, PET_IDS, PETS, RARITIES, RECIPES, RESOURCES, SKILL_IDS, SKILLS, SLOT_IDS, SLOTS,
   STATS, STRUCTURE_IDS, STRUCTURES, armorFactor, formatStat, levelFromXp, petXpForLevel, rankScale, xpForLevel,
   type Effect, type ItemId, type Mods, type PetSpecies, type SkillDef, type StatId, type StructureId,
 } from './content';
@@ -220,21 +220,26 @@ async function startGame(name: string, cls: ClassId, saved: ReturnType<typeof Op
     flash: number;
   }
   const enemyViews = new Map<number, EnemyView>();
-  const bolts: Bolt[] = [];
-  const addEnemyView = (e: Enemy) => {
-    const view = createEnemyView(e.kind);
-    (view.plate.querySelector('.label') as HTMLElement).textContent = `Lv ${e.level} ${e.kind[0].toUpperCase()}${e.kind.slice(1)}`;
-    view.target.set(e.x, world.gen.height(e.x, e.z), e.z);
-    view.snap();
-    r.scene.add(view.root);
-    const meshes: THREE.Mesh[] = [];
+  /** An enemy model whose meshes use the shared hit-flash materials. */
+  const enemyModel = (kind: string) => {
+    const view = createEnemyView(kind);
     view.root.traverse((o) => {
       const m = o as THREE.Mesh;
       if (!m.isMesh) return;
       m.material = flashMaterial(m.material as THREE.Material);
       m.userData.flash = 0;
-      meshes.push(m);
     });
+    return view;
+  };
+  const bolts: Bolt[] = [];
+  const addEnemyView = (e: Enemy) => {
+    const view = enemyModel(e.kind);
+    (view.plate.querySelector('.label') as HTMLElement).textContent = `Lv ${e.level} ${e.kind[0].toUpperCase()}${e.kind.slice(1)}`;
+    view.target.set(e.x, world.gen.height(e.x, e.z), e.z);
+    view.snap();
+    r.scene.add(view.root);
+    const meshes: THREE.Mesh[] = [];
+    view.root.traverse((o) => (o as THREE.Mesh).isMesh && meshes.push(o as THREE.Mesh));
     enemyViews.set(e.id, { view, seen: { attack: e.attackSeq, hit: e.hitSeq }, meshes, flash: 0 });
   };
   for (const e of world.enemies.values()) addEnemyView(e);
@@ -245,11 +250,21 @@ async function startGame(name: string, cls: ClassId, saved: ReturnType<typeof Op
       const kind = world.enemies.get(id)?.kind;
       if (kind && !kinds.has(kind)) kinds.set(kind, ev.view.root);
     }
+    // kinds that only turn up later (night wanderers) get a throwaway model
+    const spare: CharacterView[] = [];
+    for (const kind of Object.keys(ENEMY_KINDS)) {
+      if (kinds.has(kind)) continue;
+      const v = enemyModel(kind);
+      v.plate.remove();
+      spare.push(v);
+      kinds.set(kind, v.root);
+    }
     const models = [...kinds.values()];
     for (let i = 0; i < models.length; i++) {
       loading(0.85 + (0.15 * i) / (models.length + 1), 'Preparing enemies…');
       await spells.prewarmStatuses(models[i], ['burn', 'freeze', 'stun', 'dissolve', 'appear']);
     }
+    for (const v of spare) v.dispose();
     loading(1, 'Preparing your hero…');
     await spells.prewarmStatuses(hero.root, ['shield']);
   }
@@ -339,7 +354,7 @@ async function startGame(name: string, cls: ClassId, saved: ReturnType<typeof Op
         if (e.style !== 'pet') sfxAt(FLOAT_SFX[e.style], e.x, e.z);
         if (e.style === 'crit') impact(0.15, 0.05);
         if (e.style === 'player') impact(0.2);
-        if (e.style === 'shield') {
+        if (e.style === 'shield' && e.text !== 'Dodged') {
           const from = nearestEnemy(e.x, e.z);
           if (from) spells.shieldHit(from);
         }
@@ -358,7 +373,7 @@ async function startGame(name: string, cls: ClassId, saved: ReturnType<typeof Op
         const target = e.tx !== undefined && e.tz !== undefined ? { x: e.tx, z: e.tz } : null;
         let move: ReturnType<Spells['skill']> = null;
         if (e.kind === 'chain') spells.chain(e.element, caster, e.points ?? []);
-        else move = spells.skill(e.id, e.element, caster, target, e.facing, e.radius);
+        else move = spells.skill(e.id, e.element, caster, target, e.facing, e.radius, { x: e.x, z: e.z }, heroChest);
         if (mine) move?.on('hit', (hit) => hit.index === 0 && landed(hit.point, hit.hitStop));
         // the cast's own sound; the blast of a bolt sounds when it lands
         switch (e.kind) {
@@ -426,9 +441,17 @@ async function startGame(name: string, cls: ClassId, saved: ReturnType<typeof Op
       case 'enemy-added': addEnemyView(e.enemy); break;
       case 'enemy-removed': {
         const ev = enemyViews.get(e.id);
-        if (ev) spells.clear(ev.view.root);
-        ev?.view.dispose();
         enemyViews.delete(e.id);
+        if (!ev) break;
+        // night wanderers leave the world as they fall: burn them away, then let go of the view
+        if (ev.view.root.parent && ev.view.root.visible && !ev.dissolving) {
+          ev.dissolving = true;
+          ev.view.plate.style.visibility = 'hidden';
+          spells.dissolve(ev.view.root, () => ev.view.dispose());
+        } else {
+          spells.clear(ev.view.root);
+          ev.view.dispose();
+        }
         break;
       }
       case 'gather-hit':
