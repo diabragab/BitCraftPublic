@@ -102,14 +102,14 @@ A BitCraft-style sandbox with original rules, names and CC0 art. It plays in the
   - The four pets are a Skeleton Squire (tank), an Ember Sprite (damage), a Moss Sprite (healer) and a Storm Sprite (speed).
   - Pets fight beside you, draw enemies away, and give you an aura bonus.
   - They level up from your fights and learn four skills each with their own skill points.
-- **HDR glow:** fire, magic, glowing ore and pets are brighter than white and bloom. This can be turned off in the menu, and it is off by default on phones.
+- **Spell effects by [rollshade](https://rollshade.tsuyatt.com/)** (MIT): every class and pet skill plays a rollshade move: projectiles, novas, meteors, pillars, cleaves, dashes, heals and buff bursts. Damage lands when the effect hits, not when you press the key. Burning, slowed (iced to the knees) and stunned enemies show it on their bodies, the Arcane Shield is a hexagon bubble that ripples when struck, buffs wrap the hero in an aura, campfires burn with rollshade's flames, and the fallen burn away.
+- **HDR glow:** fire, magic, glowing ore and pets are brighter than white and bloom. Bloom can be turned off in the menu, and it is off by default on phones.
+- **Renderer:** three.js `WebGPURenderer`, which rollshade needs. It uses WebGPU where the browser has it and falls back to WebGL2 by itself.
 - **Saving:** progress is kept in the browser (`localStorage`).
 - **Sound and music:** all synthesized in the browser with the Web Audio API, so there are no audio files. Music changes key and tempo between day and night, and drums come in when skeletons are hunting you nearby. Ambience is wind with birds by day and crickets at night. There are sound effects for chopping, mining, combat, loot, crafting, building, level-ups and footsteps, and volume sliders in the menu.
 - **Shader effects**, ported from [GDQuest's Godot Shaders](https://github.com/gdquest-demos/godot-shaders) (MIT):
   - water that shades from shallow to deep, with foam along the shore;
   - trees and grass that sway in the wind, with grass that bends away from the hero;
-  - stylized campfire flames;
-  - slain skeletons that burn away;
   - an outline on whatever **E** would use;
   - glowing iron veins;
   - an x-ray silhouette of the hero when trees or buildings hide them.
@@ -121,9 +121,9 @@ Code is in `web/client/src/openworld/`:
 - `terrain.ts`: world generation.
 - `content.ts`: items, gear, skills and pets as data.
 - `sim.ts`: the rules.
-- `render.ts`: chunks, instancing, day/night and the HDR pipeline.
-- `shaders.ts`: shader effects.
-- `vfx.ts`: skill effects and particles.
+- `render.ts`: chunks, instancing, day/night, the renderer and rollshade's effects system.
+- `shaders.ts`: shader effects, written in TSL (three.js node materials).
+- `spells.ts`: turns skills, statuses and deaths into rollshade effects.
 - `petview.ts`: how pets look.
 - `icons.ts`: SVG icons.
 - `main.ts`: the UI. The audio engine is `web/client/src/audio.ts`. Run it with `npm run dev`, then open `/world.html`. Test it with `npm run test:world`.

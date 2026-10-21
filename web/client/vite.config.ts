@@ -22,11 +22,19 @@ export default defineConfig({
     outDir: offline ? 'dist-offline' : 'dist',
     target: 'es2022',
     assetsDir: 'assets/js',
-    chunkSizeWarningLimit: 900,
+    chunkSizeWarningLimit: 1400,
     rollupOptions: {
       // index.html: arena (multiplayer, or single-player when OFFLINE); world.html: the open world
       input: { index: 'index.html', world: 'world.html' },
-      output: { manualChunks: offline ? { three: ['three'] } : { three: ['three'], spacetimedb: ['spacetimedb'] } },
+      // three's WebGPU build and rollshade are only loaded by the open world
+      output: {
+        manualChunks: {
+          three: ['three'],
+          'three-webgpu': ['three/webgpu', 'three/tsl'],
+          rollshade: ['rollshade'],
+          ...(offline ? {} : { spacetimedb: ['spacetimedb'] }),
+        },
+      },
     },
   },
 });

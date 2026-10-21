@@ -1,6 +1,7 @@
 import '../style.css';
 import './world.css';
-import * as THREE from 'three';
+import * as THREE from 'three/webgpu';
+import { WebGLRenderer } from 'three';
 import { loadModels } from '../assets';
 import { audio, type Sfx } from '../audio';
 import { Bolt, CharacterView, createEnemyView } from '../entities';
@@ -15,8 +16,8 @@ import {
 import { gearIcon, skillIcon, slotIcon } from './icons';
 import { PetView } from './petview';
 import { WorldRenderer } from './render';
-import { Dissolver, addXray } from './shaders';
-import { Vfx } from './vfx';
+import { addXray, flashMaterial } from './shaders';
+import { Spells } from './spells';
 import type { Element as FxElement } from './content';
 
 /** Basic-attack chains: three swings, the last one is the finisher. */
@@ -112,8 +113,9 @@ async function boot() {
     $('loading-text').textContent = `Could not load the game files: ${(e as Error).message}. Reload to try again.`;
     return;
   }
-  // class portraits come from a throwaway renderer so the game canvas keeps a single context
-  const portraitRenderer = new THREE.WebGLRenderer({ canvas: document.createElement('canvas'), antialias: true });
+  // class portraits come from a throwaway classic renderer (the game itself runs on
+  // WebGPURenderer); it is gone before the game canvas starts
+  const portraitRenderer = new WebGLRenderer({ canvas: document.createElement('canvas'), antialias: true });
   portraitRenderer.outputColorSpace = THREE.SRGBColorSpace;
   const portraits = renderPortraits(portraitRenderer);
   portraitRenderer.dispose();
@@ -152,7 +154,7 @@ function setupStartScreen(portraits: Record<string, string>) {
     $('continue-name').textContent = `${saved.player.name} the ${CLASSES[saved.player.cls as ClassId]?.label ?? 'Hero'}`;
     const total = SKILL_IDS.reduce((s, k) => s + levelFromXp(saved.player.xp[k] ?? 0), 0);
     $('continue-detail').textContent = `Total skill level ${total} · ${saved.player.gold} gold · ${saved.structures.length} buildings`;
-    $('btn-continue').onclick = () => startGame(saved.player.name, saved.player.cls as ClassId, saved, portraits);
+    $('btn-continue').onclick = () => void startGame(saved.player.name, saved.player.cls as ClassId, saved, portraits);
     $('btn-new').textContent = 'Start over with a new hero';
   }
   $<HTMLFormElement>('new-form').onsubmit = (e) => {
@@ -169,11 +171,11 @@ function setupStartScreen(portraits: Record<string, string>) {
       return;
     }
     OpenWorld.clearSave();
-    startGame(name, chosen, null, portraits);
+    void startGame(name, chosen, null, portraits);
   };
 }
 
-function startGame(name: string, cls: ClassId, saved: ReturnType<typeof OpenWorld.load>, portraits: Record<string, string>) {
+async function startGame(name: string, cls: ClassId, saved: ReturnType<typeof OpenWorld.load>, portraits: Record<string, string>) {
   // called from the Play / Continue click, which is the user gesture browsers require for sound
   audio.setVolumes(prefs.music, prefs.sfx);
   audio.start();
@@ -182,8 +184,20 @@ function startGame(name: string, cls: ClassId, saved: ReturnType<typeof OpenWorl
   const r = new WorldRenderer(canvas, world);
   r.setShadows(prefs.shadows);
   r.setGrass(prefs.grass);
-  r.setBloom(prefs.bloom);
-  const vfx = new Vfx(r.scene, (x, z) => world.gen.height(x, z));
+  // start the GPU and compile every spell effect behind the loading bar
+  show('loading');
+  const loading = (f: number, text: string) => {
+    $('loading-bar').style.width = `${Math.round(f * 100)}%`;
+    $('loading-text').textContent = text;
+  };
+  loading(0, 'Preparing spell effects…');
+  try {
+    await r.init({ bloom: prefs.bloom, shake: prefs.shake }, (f) => loading(f * 0.85, 'Preparing spell effects…'));
+  } catch (e) {
+    $('loading-text').textContent = `Could not start the graphics: ${(e as Error).message}. Reload to try again.`;
+    return;
+  }
+  const spells = new Spells(r.fx, (x, z) => world.gen.height(x, z));
   const input = new Input(canvas);
   input.enabled = true;
   const islandImage = renderIslandImage(world.gen);
@@ -194,14 +208,15 @@ function startGame(name: string, cls: ClassId, saved: ReturnType<typeof OpenWorl
   const gatherClip = cls === 'barbarian' ? '2H_Melee_Attack_Chop' : '1H_Melee_Attack_Chop';
   r.scene.add(hero.root);
   addXray(hero.root); // the hero shows through trees and buildings
+  /** Where the hero's spells start: a point at chest height that moves with the hero. */
+  const heroChest = Spells.anchor(hero.root);
   interface EnemyView {
     view: CharacterView;
     seen: { attack: number; hit: number };
     diedAt?: number;
-    dissolver?: Dissolver;
-    /** This enemy's own materials, so a hit flash lights only it. */
-    mats: THREE.MeshStandardMaterial[];
-    base: THREE.Color[];
+    dissolving?: boolean;
+    /** Meshes whose `userData.flash` lights the shared flash material (shaders.ts). */
+    meshes: THREE.Mesh[];
     flash: number;
   }
   const enemyViews = new Map<number, EnemyView>();
@@ -212,32 +227,51 @@ function startGame(name: string, cls: ClassId, saved: ReturnType<typeof OpenWorl
     view.target.set(e.x, world.gen.height(e.x, e.z), e.z);
     view.snap();
     r.scene.add(view.root);
-    const mats: THREE.MeshStandardMaterial[] = [];
+    const meshes: THREE.Mesh[] = [];
     view.root.traverse((o) => {
       const m = o as THREE.Mesh;
       if (!m.isMesh) return;
-      const mat = (m.material as THREE.MeshStandardMaterial).clone();
-      m.material = mat;
-      mats.push(mat);
+      m.material = flashMaterial(m.material as THREE.Material);
+      m.userData.flash = 0;
+      meshes.push(m);
     });
-    enemyViews.set(e.id, { view, seen: { attack: e.attackSeq, hit: e.hitSeq }, mats, base: mats.map((m) => m.emissive.clone()), flash: 0 });
+    enemyViews.set(e.id, { view, seen: { attack: e.attackSeq, hit: e.hitSeq }, meshes, flash: 0 });
   };
   for (const e of world.enemies.values()) addEnemyView(e);
+  // status looks are built once per kind of model: compile them now, not on the first burn
+  {
+    const kinds = new Map<string, THREE.Object3D>();
+    for (const [id, ev] of enemyViews) {
+      const kind = world.enemies.get(id)?.kind;
+      if (kind && !kinds.has(kind)) kinds.set(kind, ev.view.root);
+    }
+    const models = [...kinds.values()];
+    for (let i = 0; i < models.length; i++) {
+      loading(0.85 + (0.15 * i) / (models.length + 1), 'Preparing enemies…');
+      await spells.prewarmStatuses(models[i], ['burn', 'freeze', 'stun', 'dissolve', 'appear']);
+    }
+    loading(1, 'Preparing your hero…');
+    await spells.prewarmStatuses(hero.root, ['shield']);
+  }
 
   // ---- pet
   let petView: PetView | null = null;
+  /** The pet's chest-height anchor, where its spells start. */
+  let petChest: THREE.Object3D | null = null;
   const petLabel = (sp: PetSpecies) => `${PETS[sp].name} · Lv ${world.petLevel(world.pets.get(sp)!)}`;
   const showPet = () => {
     const pet = world.pet();
     if (petView && (!pet || petView.species !== pet.species)) {
       petView.dispose();
       petView = null;
+      petChest = null;
     }
     if (pet && !petView) {
       petView = new PetView(pet.species, petLabel(pet.species));
       petView.target.set(pet.x, world.gen.height(pet.x, pet.z), pet.z);
       petView.snap();
       r.scene.add(petView.root);
+      petChest = Spells.anchor(petView.root, 0.8);
     }
   };
   showPet();
@@ -280,12 +314,22 @@ function startGame(name: string, cls: ClassId, saved: ReturnType<typeof OpenWorl
     if (delay) setTimeout(() => audio.play(name, v), delay);
     else audio.play(name, v);
   };
-  // impact feedback: camera shake and a brief animation freeze ("hit-stop") on big hits
-  let shake = 0;
+  // impact feedback: camera shake and a brief freeze ("hit-stop") of animations and effects on
+  // big hits. rollshade shakes the camera on its own hits (its `feel`); these are ours.
   let hitStop = 0;
   const impact = (strength: number, stop = 0) => {
-    if (prefs.shake) shake = Math.max(shake, strength);
+    if (prefs.shake && strength > 0) r.fx.shake(strength);
+    if (stop > 0) r.fx.hitStop(stop);
     hitStop = Math.max(hitStop, stop);
+  };
+  /** Freezes on a spell's first hit, but only when it lands near a living enemy. */
+  const landed = (point: THREE.Vector3, stop: number) => {
+    if ([...world.enemies.values()].some((e) => e.alive && Math.hypot(e.x - point.x, e.z - point.z) < 3)) impact(0, Math.min(stop, 0.12));
+  };
+  const nearestEnemy = (x: number, z: number) => {
+    let best: Enemy | null = null;
+    for (const e of world.enemies.values()) if (e.alive && (!best || Math.hypot(e.x - x, e.z - z) < Math.hypot(best.x - x, best.z - z))) best = e;
+    return best;
   };
   const FLOAT_SFX: Record<string, Sfx> = { '': 'hit', crit: 'crit', player: 'hurt', heal: 'potion', gain: 'pickup', pet: 'hit', shield: 'equip' };
   world.onEvent = (e: WorldEvent) => {
@@ -295,84 +339,70 @@ function startGame(name: string, cls: ClassId, saved: ReturnType<typeof OpenWorl
         if (e.style !== 'pet') sfxAt(FLOAT_SFX[e.style], e.x, e.z);
         if (e.style === 'crit') impact(0.15, 0.05);
         if (e.style === 'player') impact(0.2);
+        if (e.style === 'shield') {
+          const from = nearestEnemy(e.x, e.z);
+          if (from) spells.shieldHit(from);
+        }
         break;
       case 'dodge': {
         hero.play('Dodge_Forward');
-        vfx.dust(e.x, e.z, 14);
-        vfx.trail(e.x, e.z, e.x + Math.sin(e.facing) * 4.5, e.z + Math.cos(e.facing) * 4.5, CLASS_ELEMENT[cls]);
+        spells.dodge(CLASS_ELEMENT[cls], heroChest, e.x, e.z, e.facing);
         audio.play('dash');
         break;
       }
       case 'skill': {
         const def = ALL_SKILLS.get(e.id);
         if (e.who === 'player' && e.clip) hero.play(e.clip);
-        const tx = e.tx ?? e.x;
-        const tz = e.tz ?? e.z;
         const mine = e.who === 'player';
-        const IMPACT: Partial<Record<string, [number, number]>> = {
-          nova: [0.45, 0.08], cone: [0.3, 0.06], dash: [0.2, 0.04], chain: [0.2, 0], bolt: [0.15, 0], buff: [0.08, 0], heal: [0.08, 0], taunt: [0.2, 0],
-        };
-        const [shk, stop] = IMPACT[e.kind] ?? [0, 0];
-        impact(mine ? shk : shk * 0.4, mine ? stop : 0);
-        // signature effects on top of the generic one for the skill's kind
-        const r0 = e.radius ?? 3;
-        switch (e.id) {
-          case 'whirlwind': vfx.spin(() => hero.root.position, r0, e.element, 0.8); break;
-          case 'frost_nova': vfx.spikes(e.x, e.z, r0, 'frost', 22); break;
-          case 'thorn_snare': vfx.spikes(e.x, e.z, r0, 'nature', 14); break;
-          case 'grave_quake': vfx.spikes(e.x, e.z, r0, 'bone', 16); vfx.dust(e.x, e.z, 24); break;
-          case 'judgement': vfx.pillar(e.x, e.z, 'holy', 1.8); vfx.dust(e.x, e.z, 24); break;
-          case 'thunderclap': vfx.pillar(e.x, e.z, 'storm', 1.2); vfx.lightning([[e.x - 1.5, e.z - 1], [e.x, e.z], [e.x + 1.5, e.z + 1]], 'storm'); break;
-          case 'inferno': vfx.pillar(e.x, e.z, 'fire', 1.6); vfx.scorch(e.x, e.z, r0); break;
-          case 'fan_of_knives': vfx.knives(e.x, e.z, r0 + 1, 'steel', 18); break;
-          case 'leap': case 'shadowstep': vfx.dust(e.x, e.z, 10); vfx.dust(tx, tz, 18); break;
-        }
+        const caster = mine ? heroChest : petChest ?? heroChest;
+        const target = e.tx !== undefined && e.tz !== undefined ? { x: e.tx, z: e.tz } : null;
+        let move: ReturnType<Spells['skill']> = null;
+        if (e.kind === 'chain') spells.chain(e.element, caster, e.points ?? []);
+        else move = spells.skill(e.id, e.element, caster, target, e.facing, e.radius);
+        if (mine) move?.on('hit', (hit) => hit.index === 0 && landed(hit.point, hit.hitStop));
+        // the cast's own sound; the blast of a bolt sounds when it lands
         switch (e.kind) {
-          case 'nova': vfx.ring(e.x, e.z, e.radius ?? 3, e.element); sfxAt(e.element === 'frost' ? 'frost' : 'nova', e.x, e.z); break;
-          case 'cone': vfx.slash(e.x, e.z, e.facing, e.radius ?? 3, def?.effect.kind === 'cone' ? def.effect.arc : 1, e.element); sfxAt('slash', e.x, e.z); break;
+          case 'nova': sfxAt(e.element === 'frost' ? 'frost' : 'nova', e.x, e.z); break;
+          case 'cone': sfxAt('slash', e.x, e.z); break;
           case 'bolt':
-            vfx.projectile(e.x, e.z, tx, tz, e.element, 24, 0.3, () => {
-              vfx.ring(tx, tz, e.radius ?? 2, e.element, 0.45);
-              sfxAt('explosion', tx, tz);
-            });
             sfxAt(e.element === 'fire' ? 'fireball' : 'zap', e.x, e.z);
+            move?.on('hit', (hit) => hit.index === 0 && sfxAt('explosion', hit.point.x, hit.point.z));
             break;
-          case 'dash': vfx.trail(e.x, e.z, tx, tz, e.element); vfx.ring(tx, tz, e.radius ?? 1.4, e.element, 0.4); sfxAt('dash', tx, tz); break;
-          case 'meteor': vfx.meteor(tx, tz, e.radius ?? 4, e.element, e.delay ?? 900); sfxAt('fireball', e.x, e.z); break;
-          case 'chain': vfx.lightning(e.points ?? [], e.element); sfxAt('lightning', e.x, e.z); break;
-          case 'buff': vfx.column(e.x, e.z, e.element); sfxAt(def?.effect.kind === 'buff' && def.effect.shield ? 'shield' : 'buff', e.x, e.z); break;
-          case 'heal': vfx.column(e.x, e.z, e.element, true); sfxAt('heal', e.x, e.z); break;
-          case 'taunt': vfx.ring(e.x, e.z, e.radius ?? 5, 'blood'); sfxAt('taunt', e.x, e.z); break;
+          case 'dash': sfxAt('dash', e.tx ?? e.x, e.tz ?? e.z); break;
+          case 'meteor': sfxAt('fireball', e.x, e.z); break;
+          case 'chain': sfxAt('lightning', e.x, e.z); break;
+          case 'buff': sfxAt(def?.effect.kind === 'buff' && def.effect.shield ? 'shield' : 'buff', e.x, e.z); break;
+          case 'heal': sfxAt('heal', e.x, e.z); break;
+          case 'taunt': sfxAt('taunt', e.x, e.z); break;
         }
         break;
       }
       case 'skill-impact':
-        vfx.ring(e.x, e.z, e.radius, e.element);
-        vfx.scorch(e.x, e.z, e.radius, e.element);
-        vfx.dust(e.x, e.z, 30);
+        // the meteor's first strike: rollshade draws it, this is the sound and the freeze
         sfxAt('explosion', e.x, e.z);
-        impact(0.8, 0.1);
+        impact(0, 0.1);
         break;
       case 'pet-summon': {
         showPet();
         const pet = world.pet();
-        if (pet) vfx.column(pet.x, pet.z, PETS[pet.species].element);
+        if (pet && petChest) spells.burst(PETS[pet.species].element, petChest);
         break;
       }
       case 'pet-dismiss':
         petView?.dispose();
         petView = null;
+        petChest = null;
         break;
       case 'pet-attack':
         if (PETS[e.species].look === 'sprite') {
-          vfx.projectile(e.x, e.z, e.tx, e.tz, PETS[e.species].element, 20, 0.14);
+          if (petChest) spells.shot(PETS[e.species].element, petChest, spells.at(e.tx, e.tz), 0.5);
           sfxAt('pet-zap', e.x, e.z);
         } else sfxAt('swing', e.x, e.z);
         break;
       case 'pet-down': toast('Your pet was knocked out'); break;
       case 'pet-up': {
         const pet = world.pet();
-        if (pet) vfx.column(pet.x, pet.z, PETS[pet.species].element);
+        if (pet && petChest) spells.burst(PETS[pet.species].element, petChest);
         toast('Your pet is back on its feet');
         break;
       }
@@ -396,7 +426,7 @@ function startGame(name: string, cls: ClassId, saved: ReturnType<typeof OpenWorl
       case 'enemy-added': addEnemyView(e.enemy); break;
       case 'enemy-removed': {
         const ev = enemyViews.get(e.id);
-        ev?.dissolver?.restore();
+        if (ev) spells.clear(ev.view.root);
         ev?.view.dispose();
         enemyViews.delete(e.id);
         break;
@@ -413,9 +443,9 @@ function startGame(name: string, cls: ClassId, saved: ReturnType<typeof OpenWorl
         const p = world.player;
         if (clsDef.ranged) {
           spawnBolt(hero.root.position, e.facing, clsDef.range, '#7fd4ff');
-          if (finisher) vfx.projectile(p.x, p.z, p.x + Math.sin(e.facing) * clsDef.range, p.z + Math.cos(e.facing) * clsDef.range, 'arcane', 26, 0.22);
+          if (finisher) spells.shot('arcane', heroChest, spells.at(p.x + Math.sin(e.facing) * clsDef.range, p.z + Math.cos(e.facing) * clsDef.range), 0.9);
         } else {
-          vfx.slash(p.x, p.z, e.facing, clsDef.range + 0.3, clsDef.arc * (finisher ? 1.35 : 1), finisher ? 'holy' : CLASS_ELEMENT[cls], finisher ? 1.6 : 0.8);
+          spells.swing(finisher ? 'holy' : CLASS_ELEMENT[cls], heroChest, e.facing, Math.min(2, clsDef.range), finisher);
         }
         if (finisher) impact(0.25, 0.06);
         break;
@@ -1009,6 +1039,7 @@ function startGame(name: string, cls: ClassId, saved: ReturnType<typeof OpenWorl
   shakeOpt.checked = prefs.shake;
   shakeOpt.onchange = () => {
     prefs.shake = shakeOpt.checked;
+    r.fx.feel = prefs.shake;
     savePrefs();
   };
   const stats = $<HTMLInputElement>('opt-stats');
@@ -1063,8 +1094,8 @@ function startGame(name: string, cls: ClassId, saved: ReturnType<typeof OpenWorl
   r.renderer.setAnimationLoop((time) => {
     timer.update(time);
     const dt = Math.min(timer.getDelta(), 0.1);
-    // hit-stop: animations nearly freeze for a few frames, effects keep going
-    const animDt = hitStop > 0 ? dt * 0.08 : dt;
+    // hit-stop: animations nearly freeze for a few frames, and so do rollshade's effects
+    const animDt = hitStop > 0 || r.fx.hitStopping ? dt * 0.08 : dt;
     hitStop = Math.max(0, hitStop - dt);
     const p = world.player;
     sendMove();
@@ -1099,28 +1130,29 @@ function startGame(name: string, cls: ClassId, saved: ReturnType<typeof OpenWorl
       ev.view.moving = e.moving;
       ev.view.setHealth(e.hp, e.maxHp);
       ev.view.setAlive(e.alive);
-      // the fallen burn away into embers, and come back whole when they respawn
+      // the fallen burn away (rollshade's dissolve) after the death animation, and fade back
+      // in when they respawn
       if (!e.alive) {
         ev.diedAt ??= performance.now();
-        const t = (performance.now() - ev.diedAt - 900) / 1300;
-        if (t > 0) {
-          ev.dissolver ??= new Dissolver(ev.view.root);
-          ev.dissolver.set(Math.min(1, t));
+        if (!ev.dissolving && performance.now() - ev.diedAt > 900) {
+          ev.dissolving = true;
+          const root = ev.view.root;
+          spells.dissolve(root, () => root.removeFromParent());
         }
       } else if (ev.diedAt !== undefined) {
-        ev.dissolver?.restore();
-        ev.dissolver = undefined;
         ev.diedAt = undefined;
+        ev.dissolving = false;
+        if (!ev.view.root.parent) r.scene.add(ev.view.root);
+        spells.appear(ev.view.root);
       }
       if (e.attackSeq !== ev.seen.attack) {
         ev.view.play(ev.view.attackClip);
         if (e.kind === 'mage') spawnBolt(ev.view.root.position, e.facing, 8, '#b06cff');
       } else if (e.hitSeq !== ev.seen.hit && e.alive) ev.view.play('Hit_A');
       if (e.hitSeq !== ev.seen.hit) ev.flash = 1;
-      if (ev.flash > 0) {
+      if (ev.flash > 0 || ev.meshes[0]?.userData.flash) {
         ev.flash = Math.max(0, ev.flash - dt * 7);
-        // HDR white, so the flash blooms
-        ev.mats.forEach((m, i) => m.emissive.copy(ev.base[i]).addScalar(ev.flash * 2.4));
+        for (const m of ev.meshes) m.userData.flash = ev.flash; // HDR white, so the flash blooms
       }
       ev.seen = { attack: e.attackSeq, hit: e.hitSeq };
       ev.view.update(animDt);
@@ -1134,22 +1166,17 @@ function startGame(name: string, cls: ClassId, saved: ReturnType<typeof OpenWorl
       petView.setHealth(pet.hp, world.petMaxHp(pet));
       petView.update(animDt, pet.hp > 0, pet.attackSeq, pet.hitSeq);
     }
-    // effects and status markers
-    vfx.update(dt);
+    // statuses follow the sim: burning, slowed (ice up to the knees) and stunned enemies, the
+    // hero's shield and the aura of the newest buff
     const nowMs = Date.now();
-    const marks: { x: number; z: number; y: number; stunned: boolean; slowed: boolean; burning: boolean }[] = [];
     for (const [id, ev] of enemyViews) {
       const e = world.enemies.get(id);
-      if (!e || !e.alive || !ev.view.root.visible) continue;
-      const stunned = e.stunUntil > nowMs;
-      const slowed = e.slowUntil > nowMs;
-      if (stunned || slowed || e.burn) {
-        const pos = ev.view.root.position;
-        marks.push({ x: pos.x, z: pos.z, y: pos.y, stunned, slowed, burning: !!e.burn });
-      }
+      if (!e || !e.alive || !ev.view.root.visible || ev.dissolving) spells.clear(ev.view.root);
+      else spells.reconcile(ev.view.root, { burn: !!e.burn, freeze: e.slowUntil > nowMs, stun: e.stunUntil > nowMs });
     }
-    const shield = p.shield && p.shield.until > nowMs ? p.shield.amount / Math.max(1, p.shield.max) : 0;
-    vfx.follow(hero.root.position, shield, p.buffs.at(-1)?.element ?? null, marks, dt);
+    const shield = p.alive && p.shield && p.shield.until > nowMs ? p.shield.amount / Math.max(1, p.shield.max) : 0;
+    spells.heroShield(hero.root, shield, 'arcane');
+    spells.heroAura(hero.root, p.alive ? p.buffs.filter((b) => b.until > nowMs).at(-1)?.element ?? null : null);
     for (const b of [...bolts]) if (!b.update(dt)) {
       b.mesh.removeFromParent();
       bolts.splice(bolts.indexOf(b), 1);
@@ -1176,14 +1203,11 @@ function startGame(name: string, cls: ClassId, saved: ReturnType<typeof OpenWorl
     camTarget.lerp(hero.root.position, smooth(6, dt));
     const portrait = w() < h();
     const dist = (portrait ? 1.25 : 1) * zoom;
-    shake = Math.max(0, shake - dt * 2.4);
-    const sx = (Math.random() - 0.5) * shake;
-    const sy = (Math.random() - 0.5) * shake;
-    const sz = (Math.random() - 0.5) * shake;
-    r.camera.position.set(camTarget.x + sx, camTarget.y + 15 * dist + sy, camTarget.z + 11 * dist + sz);
-    r.camera.lookAt(camTarget.x + sx * 0.4, camTarget.y + 0.8, camTarget.z + sz * 0.4);
+    // (camera shake is applied by rollshade inside render, and undone after it)
+    r.camera.position.set(camTarget.x, camTarget.y + 15 * dist, camTarget.z + 11 * dist);
+    r.camera.lookAt(camTarget.x, camTarget.y + 0.8, camTarget.z);
     r.updateDayNight(camTarget);
-    r.render();
+    r.render(dt);
     hero.placePlate(r.camera, w(), h());
     petView?.placePlate(r.camera, w(), h());
     for (const ev of enemyViews.values()) if (ev.view.root.visible) ev.view.placePlate(r.camera, w(), h());
@@ -1269,7 +1293,8 @@ function startGame(name: string, cls: ClassId, saved: ReturnType<typeof OpenWorl
     world,
     renderer: r,
     audio,
-    vfx,
+    spells,
+    backend: r.backend(),
     pet: () => petView,
     snapshot: () => ({
       x: world.player.x, z: world.player.z, hp: world.player.hp, alive: world.player.alive, gold: world.player.gold,

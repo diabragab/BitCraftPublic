@@ -4,7 +4,7 @@
 // portable to a SpacetimeDB module later (state is plain data, time comes from the caller).
 import { CLASSES, type ClassId } from '../map';
 import {
-  AFFIXES, BAG_SIZE, CLASS_SKILLS, ENEMY_KINDS, GEAR, GEAR_IDS, ITEMS, PET_DOWN_MS, PETS, RARITIES, RECIPES, RESOURCES,
+  AFFIXES, BAG_SIZE, CLASS_SKILLS, skillHitDelay, ENEMY_KINDS, GEAR, GEAR_IDS, ITEMS, PET_DOWN_MS, PETS, RARITIES, RECIPES, RESOURCES,
   SKILL_IDS, SLOT_IDS, STATS, STRUCTURES, TOOL_SPEED, armorFactor, levelFromXp, petLevelFromXp, rankScale,
   type Effect, type Element, type EnemyKind, type GearBaseId, type GearItem, type Glyph, type ItemId, type Mods,
   type PetSpecies, type Recipe, type SkillDef, type SkillId, type Slot, type StationId, type StatId, type StructureId,
@@ -1042,21 +1042,34 @@ export class OpenWorld {
     const dmg = c.damage * k;
     const p = this.player;
     const base = { type: 'skill' as const, who: c.who, id: def.id, kind: fx.kind, element: def.element, clip: def.clip, x: c.x, z: c.z, facing: c.facing };
+    // damage lands when the skill's effect does (SKILL_LOOKS), not on the cast
+    const later = (delay: number, run: () => void) => {
+      if (delay > 0) this.pending.push({ at: now + delay, run });
+      else run();
+    };
     switch (fx.kind) {
       case 'nova': {
-        const at = fx.at === 'target' && c.target ? c.target : c;
-        for (const e of this.enemiesNear(at.x, at.z, fx.radius)) this.hitEnemy(e, dmg * fx.mult, c.who, { stun: fx.stun, slow: fx.slow, burn: fx.burn, knock: 1.4, from: at });
-        this.onEvent({ ...base, x: at.x, z: at.z, radius: fx.radius });
+        const at = fx.at === 'target' && c.target ? { x: c.target.x, z: c.target.z } : { x: c.x, z: c.z };
+        later(skillHitDelay(def.id), () => {
+          for (const e of this.enemiesNear(at.x, at.z, fx.radius)) this.hitEnemy(e, dmg * fx.mult, c.who, { stun: fx.stun, slow: fx.slow, burn: fx.burn, knock: 1.4, from: at });
+        });
+        this.onEvent({ ...base, x: at.x, z: at.z, radius: fx.radius, tx: c.target?.x, tz: c.target?.z });
         break;
       }
       case 'cone': {
-        for (const e of this.enemiesNear(c.x, c.z, fx.range)) {
-          const d = dist(e, c);
-          if (d > 0.6 && Math.abs(angleDiff(facingTo(e.x - c.x, e.z - c.z), c.facing)) > fx.arc) continue;
-          const exec = fx.execute && e.hp / e.maxHp < fx.execute ? 2 : 1;
-          this.hitEnemy(e, dmg * fx.mult * exec, c.who, { stun: fx.stun, knock: 1.1, from: c });
-        }
-        this.onEvent({ ...base, radius: fx.range });
+        const from = { x: c.x, z: c.z };
+        const facing = c.facing;
+        const inCone = () => this.enemiesNear(from.x, from.z, fx.range).filter((e) =>
+          dist(e, from) <= 0.6 || Math.abs(angleDiff(facingTo(e.x - from.x, e.z - from.z), facing)) <= fx.arc);
+        // the nearest enemy in the cone is where the effect aims
+        const aim = inCone().sort((a, b) => dist(a, from) - dist(b, from))[0];
+        later(skillHitDelay(def.id), () => {
+          for (const e of inCone()) {
+            const exec = fx.execute && e.hp / e.maxHp < fx.execute ? 2 : 1;
+            this.hitEnemy(e, dmg * fx.mult * exec, c.who, { stun: fx.stun, knock: 1.1, from });
+          }
+        });
+        this.onEvent({ ...base, radius: fx.range, tx: aim?.x, tz: aim?.z });
         break;
       }
       case 'bolt': {
@@ -1075,7 +1088,11 @@ export class OpenWorld {
         }
         const tx = first ? first.x : c.x + sx * fx.range;
         const tz = first ? first.z : c.z + cz * fx.range;
-        if (first) for (const e of this.enemiesNear(tx, tz, fx.blast)) this.hitEnemy(e, dmg * fx.mult, c.who, { burn: fx.burn, knock: 0.7, from: { x: tx, z: tz } });
+        if (first) {
+          later(skillHitDelay(def.id, firstAlong), () => {
+            for (const e of this.enemiesNear(tx, tz, fx.blast)) this.hitEnemy(e, dmg * fx.mult, c.who, { burn: fx.burn, knock: 0.7, from: { x: tx, z: tz } });
+          });
+        }
         this.onEvent({ ...base, tx, tz, radius: fx.blast });
         break;
       }
@@ -1096,21 +1113,24 @@ export class OpenWorld {
         if (fx.blast) for (const e of this.enemiesNear(x, z, fx.blast)) passed.add(e);
         p.x = x;
         p.z = z;
-        for (const e of passed) this.hitEnemy(e, dmg * fx.mult, 'player', { knock: 1, from: { x, z } });
+        later(skillHitDelay(def.id), () => {
+          for (const e of passed) this.hitEnemy(e, dmg * fx.mult, 'player', { knock: 1, from: { x, z } });
+        });
         this.onEvent({ ...base, tx: x, tz: z, radius: fx.blast ?? 1.4 });
         break;
       }
       case 'meteor': {
         const tx = c.target && dist(c.target, c) <= fx.range ? c.target.x : c.x + Math.sin(c.facing) * fx.range;
         const tz = c.target && dist(c.target, c) <= fx.range ? c.target.z : c.z + Math.cos(c.facing) * fx.range;
+        const delay = skillHitDelay(def.id) || fx.delay;
         this.pending.push({
-          at: now + fx.delay,
+          at: now + delay,
           run: () => {
             for (const e of this.enemiesNear(tx, tz, fx.radius)) this.hitEnemy(e, dmg * fx.mult, c.who, { stun: fx.stun, knock: 2, from: { x: tx, z: tz } });
             this.onEvent({ type: 'skill-impact', element: def.element, x: tx, z: tz, radius: fx.radius });
           },
         });
-        this.onEvent({ ...base, tx, tz, radius: fx.radius, delay: fx.delay });
+        this.onEvent({ ...base, tx, tz, radius: fx.radius, delay });
         break;
       }
       case 'chain': {
@@ -1126,7 +1146,9 @@ export class OpenWorld {
           if (!next) break;
           hit.add(next);
           points.push([next.x, next.z]);
-          this.hitEnemy(next, dmg * fx.mult * 0.85 ** i, c.who, { slow: fx.slow });
+          const target = next;
+          const jump = i;
+          later(skillHitDelay(def.id), () => this.hitEnemy(target, dmg * fx.mult * 0.85 ** jump, c.who, { slow: fx.slow }));
           from = next;
           next = null;
         }

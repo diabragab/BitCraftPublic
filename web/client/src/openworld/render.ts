@@ -1,12 +1,11 @@
-import * as THREE from 'three';
-import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
-import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
-import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
-import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
+import * as THREE from 'three/webgpu';
+import { FXSystem, type FixtureRun } from 'rollshade';
 import { gltf } from '../assets';
 import { STRUCTURES, type StructureId } from './content';
 import { hash2, mulberry32 } from './noise';
-import { Fires, Outline, crystalMaterial, depthTexture, grassMaterial, grassTuftGeometry, updateFx, waterMaterial, windMaterials } from './shaders';
+import {
+  Outline, crystalMaterial, depthTexture, grassMaterial, grassTuftGeometry, markInstancesDirty, tintedMaterial, updateFx, waterMaterial, windMaterial,
+} from './shaders';
 import type { OpenWorld } from './sim';
 import { CHUNK, VILLAGE_RADIUS, WORLD_HALF, type Placed, type ResourceNode } from './terrain';
 
@@ -24,6 +23,9 @@ interface GroupOpts {
   crystal?: boolean;
 }
 
+/** Bloom on the whole HDR frame: only colours past the threshold (fire, magic, glowing ore) glow. */
+const BLOOM = { strength: 0.45, radius: 0.3, threshold: 1.5 };
+
 /**
  * All instances of one model, drawn with one InstancedMesh per sub-mesh. Rebuilt wholesale
  * when the set changes (chunks streamed in or out, a tree felled), which is cheap at these
@@ -31,7 +33,7 @@ interface GroupOpts {
  */
 class InstanceGroup {
   private meshes: THREE.InstancedMesh[] = [];
-  private parts: { geometry: THREE.BufferGeometry; material: THREE.Material | THREE.Material[]; depth?: THREE.Material; local: THREE.Matrix4 }[] = [];
+  private parts: { geometry: THREE.BufferGeometry; material: THREE.Material | THREE.Material[]; local: THREE.Matrix4 }[] = [];
   private capacity = 0;
 
   constructor(private scene: THREE.Scene, model: string, private shadows: boolean, opts: GroupOpts) {
@@ -41,18 +43,11 @@ class InstanceGroup {
       const mesh = o as THREE.Mesh;
       if (!mesh.isMesh) return;
       let material = mesh.material;
-      let depth: THREE.Material | undefined;
-      if (opts.tint || opts.crystal || opts.wind) {
-        let single = (Array.isArray(material) ? material[0] : material).clone();
-        if (opts.tint) {
-          (single as THREE.MeshStandardMaterial).color.multiply(opts.tint);
-          (single as THREE.MeshStandardMaterial).emissive = opts.tint.clone().multiplyScalar(0.12);
-        }
-        if (opts.crystal) crystalMaterial(single);
-        if (opts.wind) ({ material: single, depth } = windMaterials(single, mesh.geometry));
-        material = single;
-      }
-      this.parts.push({ geometry: mesh.geometry, material, depth, local: mesh.matrixWorld.clone() });
+      const single = Array.isArray(material) ? material[0] : material;
+      if (opts.crystal) material = crystalMaterial(single, opts.tint);
+      else if (opts.tint) material = tintedMaterial(single, opts.tint);
+      else if (opts.wind) material = windMaterial(single, mesh.geometry);
+      this.parts.push({ geometry: mesh.geometry, material, local: mesh.matrixWorld.clone() });
     });
   }
 
@@ -65,7 +60,6 @@ class InstanceGroup {
       this.capacity = Math.max(16, Math.ceil(matrices.length * 1.5));
       this.meshes = this.parts.map((p) => {
         const m = new THREE.InstancedMesh(p.geometry, p.material, this.capacity);
-        if (p.depth) m.customDepthMaterial = p.depth;
         m.castShadow = this.shadows;
         m.receiveShadow = true;
         m.frustumCulled = false;
@@ -77,7 +71,7 @@ class InstanceGroup {
     this.meshes.forEach((m, i) => {
       matrices.forEach((mat, j) => m.setMatrixAt(j, tmp.multiplyMatrices(mat, this.parts[i].local)));
       m.count = matrices.length;
-      m.instanceMatrix.needsUpdate = true;
+      markInstancesDirty(m);
     });
   }
 }
@@ -92,35 +86,40 @@ const matrixFor = (x: number, y: number, z: number, rot: number, scale: number, 
   return m;
 };
 
+/** Most campfires that get flames and light at once (the nearest ones). */
+const MAX_CAMPFIRES = 6;
+
 export class WorldRenderer {
-  readonly renderer: THREE.WebGLRenderer;
+  readonly renderer: THREE.WebGPURenderer;
+  /** rollshade: spell effects, statuses, campfire loops, bloom and camera shake. Set by init(). */
+  fx!: FXSystem;
   readonly scene = new THREE.Scene();
   readonly camera = new THREE.PerspectiveCamera(50, 1, 0.5, 400);
   readonly sun = new THREE.DirectionalLight('#fff3dd', 2.4);
   private hemi = new THREE.HemisphereLight('#dfefff', '#5a4a3a', 1.3);
   private water: THREE.Mesh;
-  private waterMat: THREE.ShaderMaterial;
+  private waterLight: { value: number };
   private grass: THREE.InstancedMesh | null = null;
   private grassMat = grassMaterial();
   private grassGeo = grassTuftGeometry();
   private grassCache = new Map<string, { x: number; y: number; z: number; rot: number; scale: number; forest: boolean }[]>();
   grassEnabled = true;
-  private flames: Fires;
   private outline: Outline;
   private fxPlayer = new THREE.Vector3();
+  /** Campfire loops by structure position key, and their spots (all campfires, not only lit ones). */
+  private campfires = new Map<string, FixtureRun>();
+  private campfireSpots: THREE.Vector3[] = [];
+  private daylight = 1;
   /**
-   * HDR pipeline: the scene renders into a half-float target, so colours brighter than 1
-   * survive; bloom spreads light from those, then OutputPass tone-maps (ACES) to the screen.
+   * HDR pipeline: rollshade's post pass renders the scene into a half-float target, so colours
+   * brighter than 1 survive; bloom spreads light from those, then the renderer tone-maps (ACES).
    */
-  private composer: EffectComposer;
-  private bloom: UnrealBloomPass;
   bloomEnabled = true;
   private terrainMat = new THREE.MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 1 });
   private chunks = new Map<string, THREE.Mesh>();
   private chunkQueue: [number, number][] = [];
   private groups = new Map<string, InstanceGroup>();
   private visibleChunkKey = '';
-  private fires: THREE.PointLight[] = [];
   private ghost: THREE.Object3D | null = null;
   private ghostType: StructureId | null = null;
   readonly terrainMeshes: THREE.Mesh[] = [];
@@ -130,19 +129,13 @@ export class WorldRenderer {
   shadowsEnabled = !isMobile;
 
   constructor(canvas: HTMLCanvasElement, private world: OpenWorld) {
-    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: !isMobile, powerPreference: 'high-performance' });
+    // WebGPU where the browser has it, WebGL2 otherwise (the renderer falls back by itself).
+    // Multisampling is skipped on high-DPI screens, where the extra pixels already hide edges.
+    this.renderer = new THREE.WebGPURenderer({ canvas, antialias: !isMobile && window.devicePixelRatio < 1.5, powerPreference: 'high-performance' });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, isMobile ? 1.5 : 2));
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.info.autoReset = false; // several passes per frame: count the whole frame
-    const target = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: isMobile ? 0 : 4 });
-    this.composer = new EffectComposer(this.renderer, target);
-    this.composer.addPass(new RenderPass(this.scene, this.camera));
-    // threshold above what sunlit terrain (plus translucent overlays) reaches, so only emissive
-    // HDR colours (fire, magic, glowing ore) bloom
-    this.bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), 0.55, 0.4, 1.5);
-    this.composer.addPass(this.bloom);
-    this.composer.addPass(new OutputPass());
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
     this.scene.background = this.skyDay.clone();
     this.scene.fog = new THREE.Fog(this.skyDay.clone(), 70, VIEW_CHUNKS * CHUNK + 10);
@@ -158,20 +151,51 @@ export class WorldRenderer {
 
     // water depth comes from the island's heightmap (2-3 m per texel is enough for shore foam)
     const depth = depthTexture((x, z) => world.gen.height(x, z), WORLD_HALF, 256, WATER_Y);
-    this.waterMat = waterMaterial(depth, WORLD_HALF, WATER_Y);
+    const water = waterMaterial(depth, WORLD_HALF, WATER_Y);
+    this.waterLight = water.light;
     const size = VIEW_CHUNKS * CHUNK * 3;
-    this.water = new THREE.Mesh(new THREE.PlaneGeometry(size, size, WATER_SEGMENTS, WATER_SEGMENTS), this.waterMat);
+    this.water = new THREE.Mesh(new THREE.PlaneGeometry(size, size, WATER_SEGMENTS, WATER_SEGMENTS), water.material);
     this.water.rotation.x = -Math.PI / 2;
     this.water.position.y = WATER_Y;
     this.water.frustumCulled = false;
     this.scene.add(this.water);
-    this.flames = new Fires(this.scene);
     this.outline = new Outline(this.scene);
 
     this.setShadows(this.shadowsEnabled);
     this.buildStatic();
-    this.buildStructures();
     this.resize();
+  }
+
+  /**
+   * Starts the GPU backend and rollshade, then compiles every effect, loop and the world's
+   * materials so the first cast does not stutter. `onProgress` gets 0-1.
+   */
+  async init(opts: { bloom: boolean; shake: boolean }, onProgress?: (f: number) => void) {
+    await this.renderer.init();
+    this.fx = new FXSystem({
+      scene: this.scene,
+      camera: this.camera,
+      renderer: this.renderer,
+      post: { bloom: 'scene', ...BLOOM },
+      feel: opts.shake,
+      // our own impacts freeze only on hits that land (main.ts), not on every effect hit
+      hitStopScale: 0,
+      floorY: 0,
+      quality: isMobile ? 'auto' : 'high',
+      lights: isMobile ? 3 : 6,
+      loopLights: 4,
+    });
+    this.setBloom(opts.bloom);
+    this.buildStructures();
+    this.camera.position.set(this.world.player.x, 18, this.world.player.z + 13);
+    this.camera.lookAt(this.world.player.x, 0, this.world.player.z);
+    this.camera.updateMatrixWorld();
+    await this.fx.prewarm({}, onProgress);
+  }
+
+  /** 'webgpu', or 'webgl2' when the browser has no WebGPU and the renderer fell back. */
+  backend() {
+    return (this.renderer.backend as { isWebGLBackend?: boolean }).isWebGLBackend ? 'webgl2' : 'webgpu';
   }
 
   setShadows(on: boolean) {
@@ -186,14 +210,13 @@ export class WorldRenderer {
 
   setBloom(on: boolean) {
     this.bloomEnabled = on;
+    this.fx?.setBloom({ ...BLOOM, strength: on ? BLOOM.strength : 0 });
   }
 
   resize() {
     const w = window.innerWidth;
     const h = window.innerHeight;
     this.renderer.setSize(w, h, false);
-    this.composer.setPixelRatio(this.renderer.getPixelRatio());
-    this.composer.setSize(w, h);
     this.camera.aspect = w / h;
     this.camera.fov = w < h ? 62 : 50;
     this.camera.updateProjectionMatrix();
@@ -243,17 +266,41 @@ export class WorldRenderer {
       byModel.get(def.model)!.push(matrixFor(s.x, this.world.gen.height(s.x, s.z), s.z, s.rot, def.scale, def.offsetX));
     }
     for (const [model, mats] of byModel) this.group(model, 'built').set(mats);
-    // flames + light for campfires
-    for (const light of this.fires) light.removeFromParent();
-    const campfires = this.world.structures.filter((s) => s.type === 'campfire');
-    this.flames.set(campfires.map((s) => new THREE.Vector3(s.x, this.world.gen.height(s.x, s.z) + 0.55, s.z)));
-    this.fires = campfires.map((s) => {
-      const light = new THREE.PointLight('#ff9a3c', 0, 14, 1.6);
-      light.position.set(s.x, this.world.gen.height(s.x, s.z) + 1.6, s.z);
-      this.scene.add(light);
-      return light;
-    });
+    // flames on the campfire models come from rollshade's campfire loop (its own logs left out)
+    this.campfireSpots = this.world.structures.filter((s) => s.type === 'campfire')
+      .map((s) => new THREE.Vector3(s.x, this.world.gen.height(s.x, s.z) + 0.12, s.z));
+    this.updateCampfires(new THREE.Vector3(this.world.player.x, 0, this.world.player.z));
     this.rebuildGrass();
+  }
+
+  /**
+   * Keeps loops on the nearest campfires only: loops share a fixed pool of four lights, and a
+   * camp of twenty fires should not run twenty flame effects.
+   */
+  private updateCampfires(focus: THREE.Vector3) {
+    if (!this.fx) return;
+    const near = this.campfireSpots
+      .map((p) => ({ p, key: `${p.x},${p.z}`, d: Math.hypot(p.x - focus.x, p.z - focus.z) }))
+      .filter((c) => c.d < 60)
+      .sort((a, b) => a.d - b.d)
+      .slice(0, MAX_CAMPFIRES);
+    const keep = new Set(near.map((c) => c.key));
+    for (const [key, loop] of this.campfires) {
+      if (!keep.has(key)) {
+        loop.stop();
+        this.campfires.delete(key);
+      }
+    }
+    for (const c of near) {
+      if (!this.campfires.has(c.key)) this.campfires.set(c.key, this.fx.loop('campfire', c.p, { prop: false }));
+    }
+    // brighter at night, when the fire is the only light around
+    for (const loop of this.campfires.values()) loop.intensity = 0.55 + 0.45 * (1 - this.daylight);
+  }
+
+  /** Campfire loops currently burning (for tests). */
+  campfireCount() {
+    return this.campfires.size;
   }
 
   /** Grass tufts for one chunk: deterministic, only on grass and forest, never in the village or ruins. */
@@ -327,7 +374,7 @@ export class WorldRenderer {
       this.grass!.setColorAt(i, t.forest ? forest : meadow);
     });
     this.grass.count = tufts.length;
-    this.grass.instanceMatrix.needsUpdate = true;
+    markInstancesDirty(this.grass);
     if (this.grass.instanceColor) this.grass.instanceColor.needsUpdate = true;
   }
 
@@ -451,13 +498,15 @@ export class WorldRenderer {
     const cell = (VIEW_CHUNKS * CHUNK * 3) / WATER_SEGMENTS;
     this.water.position.x = Math.round(focus.x / cell) * cell;
     this.water.position.z = Math.round(focus.z / cell) * cell;
-    this.waterMat.uniforms.uLight.value = 0.3 + 0.7 * daylight;
-    const flicker = 0.85 + Math.sin(performance.now() / 90) * 0.1 + Math.random() * 0.05;
-    for (const light of this.fires) {
-      const dist = light.position.distanceTo(focus);
-      light.intensity = dist < 40 ? (6 + 14 * (1 - daylight)) * flicker : 0;
+    this.waterLight.value = 0.3 + 0.7 * daylight;
+    this.daylight = daylight;
+    this.campfireTimer -= 1;
+    if (this.campfireTimer <= 0) {
+      this.campfireTimer = 30;
+      this.updateCampfires(focus);
     }
   }
+  private campfireTimer = 0;
 
   /** Semi-transparent preview of a structure that follows the cursor in build mode. */
   setGhost(type: StructureId | null) {
@@ -500,16 +549,24 @@ export class WorldRenderer {
     return hit ? hit.point : null;
   }
 
-  render() {
+  /**
+   * Advances rollshade and draws the frame. The camera must already be placed for this frame:
+   * effects project their screen-space parts through it.
+   */
+  render(dt: number) {
     const p = this.world.player;
-    updateFx(performance.now() / 1000, this.fxPlayer.set(p.x, this.world.gen.height(p.x, p.z), p.z));
+    const ground = this.world.gen.height(p.x, p.z);
+    updateFx(performance.now() / 1000, this.fxPlayer.set(p.x, ground, p.z));
+    this.camera.updateMatrixWorld();
+    // debris (rocks, shards) lands on one global floor: keep it under the action
+    this.fx.floorY = ground;
+    this.fx.update(Math.min(dt, 0.05));
     this.renderer.info.reset();
-    if (this.bloomEnabled) this.composer.render();
-    else this.renderer.render(this.scene, this.camera);
+    this.fx.render();
   }
 
   drawCalls() {
-    return this.renderer.info.render.calls;
+    return this.renderer.info.render.drawCalls;
   }
 }
 

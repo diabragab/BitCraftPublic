@@ -172,6 +172,8 @@ mkdirSync(join(out, 'licenses'), { recursive: true });
 
 // Shader code ported from GDQuest's Godot Shaders (MIT): its licence ships with the assets too
 copyFileSync(new URL('../client/src/openworld/shaders.LICENSE.txt', import.meta.url), join(out, 'licenses', 'GDQuest-godot-shaders.LICENSE.txt'));
+// rollshade (MIT), the spell-effects library bundled into the open world
+copyFileSync(new URL('../node_modules/rollshade/LICENSE', import.meta.url), join(out, 'licenses', 'rollshade-0.6.0.LICENSE.txt'));
 
 writeFileSync(join(out, 'manifest.json'), JSON.stringify(manifest, null, 2));
 const total = manifest.files.reduce((s, f) => s + f.bytes, 0);

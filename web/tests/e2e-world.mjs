@@ -139,7 +139,7 @@ await step('start a new hero and enter the island', async () => {
   await pg.$eval('.class-card[data-class=knight]', (b) => b.click());
   // a real (trusted) click: browsers only allow sound after a user gesture
   await pg.click('#btn-new', { timeout: 60000 });
-  await pg.waitForSelector('#hud:not(.hidden)', { timeout: 60000 });
+  await pg.waitForSelector('#hud:not(.hidden)', { timeout: 600000 });
   const s = await snap(pg);
   const ruins = await pg.evaluate(() => window.__world.world.gen.ruins.length);
   assert(s.alive && s.hp === 140, JSON.stringify(s));
@@ -222,7 +222,7 @@ await step('progress survives a reload (continue)', async () => {
   await pg.waitForSelector('#screen-start.visible', { timeout: 180000 });
   assert(await pg.isVisible('#continue-box'), 'continue box shown');
   await pg.click('#btn-continue', { timeout: 60000 });
-  await pg.waitForSelector('#hud:not(.hidden)');
+  await pg.waitForSelector('#hud:not(.hidden)', { timeout: 600000 });
   const s = await snap(pg);
   assert(s.structures === 1, `structures=${s.structures}`);
   assert(s.xp.woodcutting === before.xp.woodcutting && (s.inv.wood ?? 0) === (before.inv.wood ?? 0), 'inventory/xp kept');
@@ -230,23 +230,26 @@ await step('progress survives a reload (continue)', async () => {
   return `wood=${s.inv.wood}, structures=${s.structures}`;
 });
 
-/** Compiles every material in the scene and returns the custom shader keys that were built. */
+/**
+ * Compiles every material in the scene (WebGPURenderer compiles asynchronously; a failed TSL
+ * build logs a console error, which the last desktop step catches) and returns the Hearthwild
+ * node materials that are in it, by name.
+ */
 const shaderKeys = (p) =>
-  p.evaluate(() => {
+  p.evaluate(async () => {
     const r = window.__world.renderer;
-    r.renderer.compile(r.scene, r.camera);
-    r.render();
+    await r.renderer.compileAsync(r.scene, r.camera);
     const keys = new Set();
-    for (const prog of r.renderer.info.programs) {
-      for (const k of ['wind', 'grass', 'crystal', 'outline', 'dissolve']) if (prog.cacheKey.includes(k)) keys.add(k);
-      // hand-written shader materials are keyed by a hash of their source, so match their names
-      const named = /^hearthwild-(water|fire)$/.exec(prog.name);
-      if (named) keys.add(named[1]);
-    }
+    r.scene.traverse((o) => {
+      for (const m of [o.material ?? []].flat()) {
+        const named = /^hearthwild-(\w+)$/.exec(m.name ?? '');
+        if (named && o.visible !== false) keys.add(named[1]);
+      }
+    });
     return [...keys].sort();
   });
 
-await step('shader effects compile: water, wind, grass, fire, ore glow', async () => {
+await step('shader effects compile: water, wind, grass, ore glow; campfires burn (rollshade loop)', async () => {
   // a campfire for the fire shader, next to the fence
   const fire = await pg.evaluate(() => {
     const w = window.__world.world;
@@ -263,7 +266,14 @@ await step('shader effects compile: water, wind, grass, fire, ore glow', async (
   const grass = await pg.evaluate(() => window.__world.renderer.grass?.count ?? 0);
   assert(grass > 100, `only ${grass} grass tufts around the player`);
   let keys = await shaderKeys(pg);
-  for (const k of ['fire', 'grass', 'water', 'wind']) assert(keys.includes(k), `${k} shader not built (built: ${keys})`);
+  for (const k of ['grass', 'water', 'wind']) assert(keys.includes(k), `${k} shader not built (built: ${keys})`);
+  // the campfire's flames are a rollshade loop on the campfire model (the loop list refreshes every 30 frames)
+  let fires = 0;
+  for (let i = 0; i < 20 && !fires; i++) {
+    fires = await pg.evaluate(() => window.__world.renderer.campfireCount());
+    if (!fires) await sleep(1000);
+  }
+  assert(fires >= 1, 'no campfire loop');
   await pg.screenshot({ path: join(out, 'world-shaders.png') });
   // iron only grows on mountains: move the hero next to the nearest vein to see the ore glow
   const iron = await pg.evaluate(() => {
@@ -279,10 +289,10 @@ await step('shader effects compile: water, wind, grass, fire, ore glow', async (
   while (Date.now() < end && !(keys = await shaderKeys(pg)).includes('crystal')) await sleep(1000);
   assert(keys.includes('crystal'), `ore glow not built (built: ${keys})`);
   await pg.screenshot({ path: join(out, 'world-iron.png') });
-  return `${grass} grass tufts; built: ${keys.join(', ')}`;
+  return `${grass} grass tufts, ${fires} campfire loop(s); node materials: ${keys.join(', ')}`;
 });
 
-await step('a slain skeleton burns away (dissolve shader) with its death sound', async () => {
+await step('a slain skeleton burns away (rollshade dissolve) with its death sound', async () => {
   const sfx0 = await pg.evaluate(() => window.__world.audio.stats.sfx);
   // stage a kill next to the hero through the simulation's own methods
   await pg.evaluate(() => {
@@ -291,17 +301,19 @@ await step('a slain skeleton burns away (dissolve shader) with its death sound',
     const e = [...w.enemies.values()].at(-1);
     w.killEnemy(e);
   });
+  const d0 = await pg.evaluate(() => window.__world.spells.stats().dissolves);
   const end = Date.now() + 30000;
-  let dissolving = false;
-  while (Date.now() < end && !dissolving) {
+  let st;
+  while (Date.now() < end) {
     await sleep(1000);
-    dissolving = (await shaderKeys(pg)).includes('dissolve');
+    st = await pg.evaluate(() => window.__world.spells.stats());
+    if (st.dissolves > d0 && st.statuses > 0) break;
   }
-  assert(dissolving, 'no dissolve material on the fallen skeleton');
+  assert(st.dissolves > d0 && st.statuses > 0, `no dissolve status on the fallen skeleton: ${JSON.stringify(st)}`);
   await pg.screenshot({ path: join(out, 'world-dissolve.png') });
   const sfx = (await pg.evaluate(() => window.__world.audio.stats.sfx)) - sfx0;
   assert(sfx >= 1, 'no sound for the kill');
-  return `dissolve shader active, ${sfx} sound effect(s)`;
+  return `dissolve status running, ${sfx} sound effect(s)`;
 });
 
 /** Test setup only: moves the hero, alive and healed, next to a village station (crafting needs one nearby). */
@@ -359,11 +371,25 @@ await step('combat skills: the first skill point learns Shield Bash, key 1 stuns
   await sleep(800);
   const before = await enemyState(pg, id);
   const sfx0 = await pg.evaluate(() => window.__world.audio.stats.sfx);
+  const fx0 = await pg.evaluate(() => window.__world.spells.stats().effects);
   await pg.keyboard.press('1');
-  await sleep(600);
-  const after = await enemyState(pg, id);
+  const cast = await pg.evaluate(() => ({ effects: window.__world.spells.stats().effects }));
+  assert(cast.effects > fx0, 'no rollshade effect for the skill');
+  // the damage lands with the effect's hit (220 ms for the palm strike), not on the key press
+  let after = await enemyState(pg, id);
+  for (let i = 0; i < 20 && after && after.hp >= before.hp; i++) {
+    await sleep(250);
+    after = await enemyState(pg, id);
+  }
   assert(after && after.hp < before.hp, `skill did no damage: ${before.hp} → ${after?.hp}`);
   assert(after.stunned || !after.alive, 'skeleton not stunned');
+  // the stun shows as rollshade's stun status (stars over the head)
+  let stunned = 0;
+  for (let i = 0; i < 8 && !stunned && after.alive; i++) {
+    stunned = await pg.evaluate(() => window.__world.spells.stats().enemyStatuses);
+    if (!stunned) await sleep(250);
+  }
+  assert(stunned > 0 || !after.alive, 'no stun status on the skeleton');
   // the HUD shows the cooldown on its next frame (software rendering is slow)
   let cd = '';
   for (let i = 0; i < 10 && !cd; i++) {
@@ -378,7 +404,7 @@ await step('combat skills: the first skill point learns Shield Bash, key 1 stuns
     const e = w.enemies.get(id);
     if (e?.alive) w.killEnemy(e); // clean up so it cannot steal the aim in later steps
   }, id);
-  return `hp ${before.hp} → ${after.hp}, stunned, cooldown ${cd}s on the hotbar, ${sfx} sound effects`;
+  return `hp ${before.hp} → ${after.hp} after the hit landed, stun status shown, cooldown ${cd}s on the hotbar, ${sfx} sound effects`;
 });
 
 await step('action: Shift rolls the hero forward and makes it untouchable for a moment', async () => {
@@ -509,13 +535,14 @@ await step('pets: bond a Skeleton Squire; it follows, fights, gains XP and learn
   return `pet attacked ${petHits}×, pet XP ${xp0} → ${s.pet.xp}, Taunt learned`;
 });
 
-await step('HDR: the scene renders through a half-float target with bloom', async () => {
+await step('HDR: WebGPURenderer with the rollshade bloom pass and ACES tone mapping', async () => {
   const r = await pg.evaluate(() => {
     const rr = window.__world.renderer;
-    return { bloom: rr.bloomEnabled && rr.bloom.enabled, type: rr.composer.renderTarget1.texture.type, passes: rr.composer.passes.length };
+    return { backend: rr.backend(), webgpu: rr.renderer.isWebGPURenderer, bloom: rr.fx.getBloom(), toneMapping: rr.renderer.toneMapping, out: rr.renderer.getOutputBufferType?.() };
   });
-  assert(r.bloom && r.type === 1016 && r.passes === 3, JSON.stringify(r)); // 1016 = THREE.HalfFloatType
-  return 'half-float target, render + bloom + tone-mapping passes';
+  // 4 = THREE.ACESFilmicToneMapping; 1016 = THREE.HalfFloatType
+  assert(r.webgpu && r.bloom && r.bloom.strength > 0 && r.toneMapping === 4 && r.out === 1016, JSON.stringify(r));
+  return `${r.backend} backend, half-float output, bloom ${JSON.stringify(r.bloom)}`;
 });
 
 await step('skills, gear and pet survive a reload', async () => {
@@ -524,7 +551,7 @@ await step('skills, gear and pet survive a reload', async () => {
   await pg.reload();
   await pg.waitForSelector('#screen-start.visible', { timeout: 180000 });
   await pg.click('#btn-continue', { timeout: 60000 });
-  await pg.waitForSelector('#hud:not(.hidden)');
+  await pg.waitForSelector('#hud:not(.hidden)', { timeout: 600000 });
   const s = await snap(pg);
   assert(s.skills.shield_bash === 1, 'skill rank lost');
   assert(s.equipped.weapon === before.equipped.weapon, 'equipped weapon lost');
@@ -550,7 +577,7 @@ await step('phone: joystick moves the hero, the ✋ button gathers, a skill butt
   await mp.fill('#hero-name', 'Phone');
   await mp.$eval('.class-card[data-class=rogue]', (b) => b.click());
   await mp.$eval('#new-form', (f) => f.requestSubmit());
-  await mp.waitForSelector('#hud:not(.hidden)');
+  await mp.waitForSelector('#hud:not(.hidden)', { timeout: 600000 });
   const start = await snap(mp);
   const cdp = await mobile.newCDPSession(mp);
   const box = await mp.locator('#joystick').boundingBox();

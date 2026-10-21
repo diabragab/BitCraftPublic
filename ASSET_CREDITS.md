@@ -17,13 +17,17 @@ Support the author: <http://patreon.com/kaylousberg>.
 
 ## Shader code: GDQuest "Godot Shaders" (MIT)
 
-The effects in `web/client/src/openworld/shaders.ts` are ports, from Godot's shading language to three.js GLSL, of shaders in [gdquest-demos/godot-shaders](https://github.com/gdquest-demos/godot-shaders) @ `05a3931acc85513b67b80b6e88671a596a3f9693`: `water_3d`, `foliage_wind_tree_leaves`/`_trunk`, `wind_grass`, `dissolve`, `stylized_fire` (itself based on Minionsart's stylized fire), `outline3D` with its smooth-normals variant, `fresnel_crystal`, `force_field` (the shield bubble, in `vfx.ts`) and the x-ray idea of `xray_3d_mask`/`xray_glow`. Their source code is MIT-licensed, Copyright (c) 2020-present GDQuest. The licence text sits next to the code in `shaders.LICENSE.txt` and ships with the game as `assets/licenses/GDQuest-godot-shaders.LICENSE.txt`, and the copyright line is kept in the shipped JavaScript.
+The effects in `web/client/src/openworld/shaders.ts` are ports, from Godot's shading language to three.js TSL (node materials), of shaders in [gdquest-demos/godot-shaders](https://github.com/gdquest-demos/godot-shaders) @ `05a3931acc85513b67b80b6e88671a596a3f9693`: `water_3d`, `foliage_wind_tree_leaves`/`_trunk`, `wind_grass`, `outline3D` with its smooth-normals variant, `fresnel_crystal` and the x-ray idea of `xray_3d_mask`/`xray_glow`. Earlier versions also ported `dissolve`, `stylized_fire` and `force_field`; rollshade's dissolve status, campfire loop and shield status replaced them. Their source code is MIT-licensed, Copyright (c) 2020-present GDQuest. The licence text sits next to the code in `shaders.LICENSE.txt` and ships with the game as `assets/licenses/GDQuest-godot-shaders.LICENSE.txt`, and the copyright line is kept in the shipped JavaScript.
 
 That repository's **art** (textures, models) is CC-BY-NC-SA 4.0, a non-commercial licence, and **none of it is used**. Every noise texture the shaders read is generated in code at runtime.
 
+## Spell effects: rollshade (MIT)
+
+The combat effects, enemy statuses, the shield bubble, buff auras, campfire flames and the dissolve on the fallen come from [rollshade](https://rollshade.tsuyatt.com/) 0.6.0 (npm package `rollshade`), Copyright (c) 2026 tsuyatt, MIT License. Its noise functions are ported from psrdnoise, Copyright (c) 2021 Stefan Gustavson and Ian McEwan, MIT License. The licence text, both notices included, ships with the game as `assets/licenses/rollshade-0.6.0.LICENSE.txt`, and the copyright lines are kept in the shipped JavaScript. rollshade generates its textures in code; it ships no image files, makes no network requests and has no install scripts.
+
 ## Icons and effects
 
-The skill, gear, pet and buff icons (`web/client/src/openworld/icons.ts`) are original SVG drawings made for this project. The combat effects in `vfx.ts` and the pet sprites in `petview.ts` are made from code (meshes, particles and shaders) with no image files. The Skeleton Squire pet reuses the KayKit skeleton minion.
+The skill, gear, pet and buff icons (`web/client/src/openworld/icons.ts`) are original SVG drawings made for this project. The pet sprites in `petview.ts` are made from code (meshes and materials) with no image files. The Skeleton Squire pet reuses the KayKit skeleton minion.
 
 ## Audio
 
@@ -38,6 +42,7 @@ There are no audio files. The music, ambience and sound effects are synthesized 
 | `spacetimedb` Rust crate 2.10.0 | Apache 2.0 (crate `LICENSE` file) |
 | `spacetimedb` npm package 2.10.0 (TypeScript SDK) | ISC (per its package.json) |
 | three.js r186 | MIT |
+| rollshade 0.6.0 | MIT |
 | Vite 7.1 / TypeScript 5.9 | MIT / Apache 2.0 |
 | gltf-transform 4.1 | MIT |
 | Playwright 1.56 (tests only) | Apache 2.0 |

@@ -1,6 +1,7 @@
 // Game content for the open world: items, recipes, buildable structures, skills,
 // resource nodes, enemies, gear, combat skills and pets. Plain data so balance changes
 // stay in one place.
+import type { ElementName, RecipeName } from 'rollshade';
 import type { ClassId } from '../map';
 
 export type ItemId =
@@ -423,3 +424,91 @@ export const PETS: Record<PetSpecies, PetDef> = {
   },
 };
 export const PET_IDS = Object.keys(PETS) as PetSpecies[];
+
+// ---------------------------------------------------------------- skill looks (rollshade)
+
+export interface SkillLook {
+  /** rollshade move. */
+  recipe: RecipeName;
+  /** rollshade element; defaults to the one matching the skill's element (FX_ELEMENT). */
+  element?: ElementName;
+  /** Overrides the element's colours (0xrrggbb). */
+  color?: number;
+  params?: Record<string, number>;
+  scale?: number;
+  /**
+   * When the damage lands, in ms after the cast: the move's first hit from rollshade's MOVES
+   * table (target 6 m away for magic, 2 m for melee). The sim waits this long so numbers and
+   * knockback land with the effect. 0 for moves with no hit.
+   */
+  hit: number;
+  /** Extra ms per metre beyond 6 m for moves that travel (MOVES perMetre). */
+  perMetre?: number;
+}
+
+/** The rollshade element and colour for each of our elements. */
+export const FX_ELEMENT: Record<Element, { element: ElementName; color?: number }> = {
+  steel: { element: 'plain' },
+  holy: { element: 'light' },
+  blood: { element: 'fire', color: 0xff2a3a },
+  fire: { element: 'fire' },
+  frost: { element: 'ice' },
+  arcane: { element: 'arcane' },
+  shadow: { element: 'dark' },
+  nature: { element: 'earth', color: 0x7bd84a },
+  storm: { element: 'thunder' },
+  bone: { element: 'earth', color: 0xd9ccb0 },
+};
+
+const STEEL = 0xc9d3e0;
+const LEAF = 0x8be36a;
+
+export const SKILL_LOOKS: Record<string, SkillLook> = {
+  // knight
+  shield_bash: { recipe: 'palm', hit: 220 },
+  rally: { recipe: 'buff', hit: 0 },
+  holy_light: { recipe: 'heal', hit: 0 },
+  judgement: { recipe: 'nova', params: { radius: 4.5 }, hit: 810 },
+  // barbarian
+  cleave: { recipe: 'cleave', hit: 400 },
+  leap: { recipe: 'tackle', element: 'earth', hit: 370 },
+  bloodrage: { recipe: 'buff', hit: 0 },
+  whirlwind: { recipe: 'spin', scale: 1.5, hit: 270 },
+  // mage
+  fireball: { recipe: 'projectile', params: { count: 1 }, hit: 860, perMetre: 70 },
+  frost_nova: { recipe: 'nova', params: { radius: 5 }, hit: 810 },
+  arcane_shield: { recipe: 'buff', hit: 0 },
+  meteor: { recipe: 'meteor', hit: 1350 },
+  // rogue
+  shadowstep: { recipe: 'dash', hit: 230 },
+  fan_of_knives: { recipe: 'nova', element: 'wind', color: STEEL, params: { radius: 4 }, hit: 810 },
+  evasion: { recipe: 'buff', element: 'wind', hit: 0 },
+  assassinate: { recipe: 'iaido', element: 'dark', hit: 520 },
+  // squire
+  taunt: { recipe: 'buff', element: 'fire', color: 0xff3b30, hit: 0 },
+  bone_bash: { recipe: 'smash', hit: 480 },
+  bone_armor: { recipe: 'buff', hit: 0 },
+  grave_quake: { recipe: 'nova', params: { radius: 4 }, hit: 810 },
+  // ember
+  flame_burst: { recipe: 'projectile', params: { count: 1 }, scale: 0.8, hit: 860, perMetre: 70 },
+  inferno: { recipe: 'explosion', hit: 450 },
+  warmth: { recipe: 'buff', hit: 0 },
+  cinder_rain: { recipe: 'meteor', hit: 1350 },
+  // moss
+  mend: { recipe: 'heal', element: 'light', color: LEAF, hit: 0 },
+  thorn_snare: { recipe: 'chain', hit: 520 },
+  barkskin: { recipe: 'buff', hit: 0 },
+  bloom: { recipe: 'heal', element: 'light', color: LEAF, hit: 0 },
+  // storm
+  chain_lightning: { recipe: 'lance', hit: 470 },
+  static_field: { recipe: 'explosion', hit: 450 },
+  overcharge: { recipe: 'buff', hit: 0 },
+  thunderclap: { recipe: 'pillar', hit: 330 },
+};
+
+/** Milliseconds from casting a skill to its damage, for a target `distance` metres away. */
+export function skillHitDelay(id: string, distance = 6) {
+  const look = SKILL_LOOKS[id];
+  if (!look) return 0;
+  return Math.max(0, Math.round(look.hit + (look.perMetre ?? 0) * (distance - 6)));
+}
