@@ -45,6 +45,115 @@ In this first phase we are only open sourcing the server side code. You can read
 - [Open Sourcing BitCraft Online](https://bitcraftonline.com/news/open-sourcing-bitcraft-online)
 - [BitCraft Open Sourcing Update](https://bitcraftonline.com/news/bitcraft-open-sourcing-update)
 
+## Web prototype in this fork: KayKit Arena (`web/`)
+
+> **Not BitCraft, and not affiliated with Clockwork Labs.** The BitCraft client is closed source and the game's static data is not public, so the real game cannot be played from this repository (details in [PROJECT_AUDIT.md](./PROJECT_AUDIT.md)). `web/` adds a separate, original, browser-playable multiplayer prototype built on the **same server stack** (SpacetimeDB 2.10, Rust module, server-authoritative reducers and scheduled agents, external login service), with free CC0 [KayKit](https://github.com/KayKit-Game-Assets) art.
+
+| | |
+|---|---|
+| What you get | Top-down 3D action RPG: 4 hero classes, skeleton enemies with AI, melee + ranged combat, health, death/respawn, potions and gold, leaderboard, login/registration, HUD, minimap, keyboard/mouse and mobile touch controls, live multiplayer. |
+| Server | `web/arena-module` (SpacetimeDB module) + `web/gateway` (Node: REST auth, health, static hosting, allow-listed WebSocket proxy) |
+| Client | `web/client` (TypeScript, Vite, three.js, SpacetimeDB SDK) |
+
+### Quick start
+
+Prerequisites: Node.js ≥ 22.13, Rust with `rustup target add wasm32-unknown-unknown`, and the [SpacetimeDB CLI 2.10.x](https://spacetimedb.com/install).
+
+```bash
+cd web
+npm install
+spacetime login --server-issued-login local   # once: an identity for your local SpacetimeDB
+npm run dev      # starts SpacetimeDB (if needed), publishes the module, runs the gateway + Vite → http://127.0.0.1:5173
+# or
+npm start        # production-style: builds the client and serves everything from the gateway → http://127.0.0.1:8080
+```
+
+Health check: `curl http://127.0.0.1:8080/api/health`. Tests: `npm test` in `web/` (gateway unit + integration tests, then the browser end-to-end test), `cargo test` in `web/arena-module`.
+
+Controls: **WASD/arrows** move, **click/Space** attack (mouse aims), **Q** potion, **I** inventory, **L** leaderboard, **Esc** menu. On phones: left virtual joystick, ⚔ attack (auto-aims), 🧪 potion.
+
+Documentation: [PROJECT_AUDIT.md](./PROJECT_AUDIT.md) · [IMPLEMENTATION_PLAN.md](./IMPLEMENTATION_PLAN.md) · [ARCHITECTURE.md](./ARCHITECTURE.md) · [TEST_REPORT.md](./TEST_REPORT.md) · [KAYKIT_ASSET_INVENTORY.md](./KAYKIT_ASSET_INVENTORY.md) · [ASSET_CREDITS.md](./ASSET_CREDITS.md)
+
+### Hearthwild: open-world RPG (single-player, `web/client/world.html`)
+
+A BitCraft-style sandbox with original rules, names and CC0 art. It plays in the browser, with no server needed:
+
+- **World:** a procedural island 768 × 768 m (forest, grassland, beaches, rocky highlands, snow) streamed in 64 m chunks, plus a starting village and 10 skeleton ruins with loot chests.
+- **Gathering:** chop trees and mine rocks and iron. Nodes deplete and regrow; stumps stay behind.
+- **Crafting:** planks, ingots, tools, a sword and potions, made at a workbench or forge.
+- **Building:** campfire, tent, workbench, forge, house, fences and walls. Campfires, tents and houses become your respawn point.
+- **Skills:** woodcutting, mining, combat, crafting and construction, from 1 to 50, with speed and damage bonuses and unlocks.
+- **Danger:** a day/night cycle with night-time skeleton wanderers. Ruins get more dangerous the farther they are from the village.
+- **Action combat:**
+  - basic attacks chain into a three-hit combo whose finisher hits harder and knocks enemies back;
+  - **Shift** (or the roll button) dodges with a moment of invulnerability;
+  - hits flash enemies white, big hits shake the camera and briefly freeze the action (hit-stop).
+- **Combat skills:** four per class (Knight, Barbarian, Mage, Rogue) on keys **1-4** or touch buttons. Each combat level gives a point to learn a skill or raise its rank (up to 5). Every skill has its own effect, for example:
+  - Whirlwind's spinning blades;
+  - Frost Nova's ice spikes;
+  - Judgement's pillar of light;
+  - Meteor's fiery rock and scorch mark;
+  - Fan of Knives.
+- **Gear:** weapon, head, body, feet and trinket slots, and five rarities (common to legendary) with random bonus stats.
+  - Skeletons drop gear and every ruin chest holds a piece.
+  - Eight pieces can be crafted; higher crafting makes finer ones.
+  - Compare pieces, equip them, or salvage them for gold (**G**).
+- **Pets** (**P**): craft a charm to bond a pet; one is out at a time.
+  - The four pets are a Skeleton Squire (tank), an Ember Sprite (damage), a Moss Sprite (healer) and a Storm Sprite (speed).
+  - Pets fight beside you, draw enemies away, and give you an aura bonus.
+  - They level up from your fights and learn four skills each with their own skill points.
+- **Spell effects by [rollshade](https://rollshade.tsuyatt.com/)** (MIT): every class and pet skill plays a rollshade move: projectiles, novas, meteors, pillars, cleaves, dashes, heals and buff bursts. Damage lands when the effect hits, not when you press the key. Burning, slowed (iced to the knees) and stunned enemies show it on their bodies, the Arcane Shield is a hexagon bubble that ripples when struck, buffs wrap the hero in an aura, campfires burn with rollshade's flames, and the fallen burn away.
+- **HDR glow:** fire, magic, glowing ore and pets are brighter than white and bloom. Bloom can be turned off in the menu, and it is off by default on phones.
+- **Renderer:** three.js `WebGPURenderer`, which rollshade needs. It uses WebGPU where the browser has it and falls back to WebGL2 by itself.
+- **Saving:** progress is kept in the browser (`localStorage`).
+- **Sound and music:** all synthesized in the browser with the Web Audio API, so there are no audio files. Music changes key and tempo between day and night, and drums come in when skeletons are hunting you nearby. Ambience is wind with birds by day and crickets at night. There are sound effects for chopping, mining, combat, loot, crafting, building, level-ups and footsteps, and volume sliders in the menu.
+- **Shader effects**, ported from [GDQuest's Godot Shaders](https://github.com/gdquest-demos/godot-shaders) (MIT):
+  - water that shades from shallow to deep, with foam along the shore;
+  - trees and grass that sway in the wind, with grass that bends away from the hero;
+  - an outline on whatever **E** would use;
+  - glowing iron veins;
+  - an x-ray silhouette of the hero when trees or buildings hide them.
+
+Controls: WASD to move, click or Space to attack, **1-4** skills, **Shift** dodge, **E** to gather or open, Q for a potion, I/C/B/G/K/P/M for the inventory, crafting, build, character, skills, pets and map panels. On phones: joystick, ⚔, ✋, 🧪, the skill buttons and the roll button.
+
+Code is in `web/client/src/openworld/`:
+
+- `terrain.ts`: world generation.
+- `content.ts`: items, gear, skills and pets as data.
+- `sim.ts`: the rules.
+- `render.ts`: chunks, instancing, day/night, the renderer and rollshade's effects system.
+- `shaders.ts`: shader effects, written in TSL (three.js node materials).
+- `spells.ts`: turns skills, statuses and deaths into rollshade effects.
+- `petview.ts`: how pets look.
+- `icons.ts`: SVG icons.
+- `main.ts`: the UI. The audio engine is `web/client/src/audio.ts`. Run it with `npm run dev`, then open `/world.html`. Test it with `npm run test:world`.
+
+### Single-player page (no server)
+
+`npm run build:offline` in `web/` builds both games with no server: the arena with its rules ported to the browser (`client/src/offline/sim.ts`), and Hearthwild. The result in `web/client/dist-offline/` is static. `artifact.html` is the Hearthwild page in the form needed by hosts that wrap pages in their own document; it is published as a claude.ai page. There is no login and no multiplayer; progress is kept in the browser. Test it with `npm run test:offline`.
+
+### Share a public test link from your computer
+
+Uses a free [Cloudflare quick tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/do-more-with-tunnels/trycloudflare/) (no account). It only exposes the gateway; SpacetimeDB stays on localhost.
+
+1. Install `cloudflared` (macOS `brew install cloudflared`, Windows `winget install --id Cloudflare.cloudflared`, Linux/WSL: [release binary](https://github.com/cloudflare/cloudflared/releases)).
+2. Put `TRUST_PROXY=1` in `web/.env`, so login rate limits apply per visitor.
+3. Terminal 1: `spacetime start --listen-addr 127.0.0.1:3000`
+4. Terminal 2 (in `web/`): `npm start`
+5. Terminal 3 (in `web/`): `npm run tunnel`, then share the printed `https://….trycloudflare.com` address.
+
+The link stays the same while the tunnel runs, so to update the game run `git pull` and restart `npm start` in terminal 2. The link stops working when you close the tunnel or your computer sleeps. For an always-on server, see the deployment section of [ARCHITECTURE.md](./ARCHITECTURE.md).
+
+### Building the original BitCraft server modules locally
+
+```bash
+cd BitCraftServer/packages/game && spacetime build          # ~5 min, produces target/wasm32-unknown-unknown/release/bitcraft_spacetimedb.wasm
+spacetime publish -s local --bin-path target/wasm32-unknown-unknown/release/bitcraft_spacetimedb.wasm bitcraft-local-1
+cd ../global_module && spacetime build && spacetime publish -s local bitcraft-local-global
+```
+
+This was verified to build, publish and run `init` / `generate_flat_world`; gameplay needs the unpublished static data. Keep such databases on localhost: with the default `dev` config every identity has admin rights.
+
 ## About BitCraft
 
 BitCraft is a community-driven MMORPG where players collaborate to shape a procedurally generated world. There are no fixed classes or roles — instead, players build, craft, explore, trade,

@@ -1,0 +1,191 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+    <meta name="theme-color" content="#1b1622" />
+    <meta name="description" content="Hearthwild: an open-world survival RPG. Explore an island, gather, craft, build and fight skeletons." />
+    <title>Hearthwild</title>
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+  </head>
+  <body>
+    <canvas id="scene" aria-label="Game view"></canvas>
+
+    <section id="screen-loading" class="screen visible" aria-live="polite">
+      <div class="panel narrow">
+        <h1 class="logo">Hearth<span>wild</span></h1>
+        <p class="muted" id="loading-text">Loading the island…</p>
+        <div class="progress"><div id="loading-bar"></div></div>
+      </div>
+    </section>
+
+    <section id="screen-start" class="screen">
+      <div class="panel wide">
+        <h1 class="logo">Hearth<span>wild</span></h1>
+        <p class="muted center">An island of forests, highlands and old ruins. Gather, craft, build a home, and keep the skeletons at bay.</p>
+        <div id="continue-box" class="continue" hidden>
+          <div><b id="continue-name"></b><small id="continue-detail" class="muted"></small></div>
+          <button type="button" class="primary" id="btn-continue">Continue</button>
+        </div>
+        <form id="new-form" class="new-hero" novalidate>
+          <label>Hero name
+            <input id="hero-name" maxlength="16" autocomplete="nickname" spellcheck="false" required />
+          </label>
+          <div class="classes" id="class-list"></div>
+          <p class="error" id="start-error" role="alert"></p>
+          <button type="submit" class="primary" id="btn-new">Start a new adventure</button>
+        </form>
+      </div>
+    </section>
+
+    <section id="hud" class="hidden">
+      <div class="hud-top-left">
+        <div class="portrait" id="hud-class"></div>
+        <div class="vitals">
+          <div class="name" id="hud-name"></div>
+          <div class="bar hp" aria-label="Health"><div id="hud-hp-fill"></div><div id="hud-shield-fill" class="shield-fill"></div><span id="hud-hp-text"></span></div>
+          <div class="bar cd" aria-label="Attack cooldown"><div id="hud-cd-fill"></div></div>
+          <div id="hud-buffs" class="buffs" aria-label="Active effects"></div>
+          <div id="hud-pet" class="pet-vitals" hidden>
+            <span id="hud-pet-icon"></span>
+            <div class="pet-info">
+              <div class="name" id="hud-pet-name"></div>
+              <div class="bar hp pet small" aria-label="Pet health"><div id="hud-pet-fill"></div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="hud-top-right">
+        <span class="pill" id="hud-clock">☀ Day</span>
+        <span class="pill stat" title="Gold">🪙 <b id="hud-gold">0</b></span>
+        <button class="icon" data-panel="inventory" title="Inventory (I)" aria-label="Inventory">🎒</button>
+        <button class="icon" data-panel="crafting" title="Crafting (C)" aria-label="Crafting">🔨</button>
+        <button class="icon" data-panel="build" title="Build (B)" aria-label="Build">🏠</button>
+        <button class="icon" data-panel="gear" title="Character and gear (G)" aria-label="Character and gear">🛡</button>
+        <button class="icon" data-panel="skills" title="Skills (K)" aria-label="Skills">📈</button>
+        <button class="icon" data-panel="pets" title="Pets (P)" aria-label="Pets">🐾</button>
+        <button class="icon" data-panel="map" title="Map (M)" aria-label="Map">🗺</button>
+        <button class="icon" data-panel="menu" title="Menu (Esc)" aria-label="Menu">☰</button>
+      </div>
+      <canvas id="minimap" width="160" height="160" aria-label="Minimap"></canvas>
+      <div id="action-prompt" hidden>
+        <span id="action-text"></span>
+        <div class="bar gather"><div id="gather-fill"></div></div>
+      </div>
+      <div id="build-bar" hidden>
+        <span id="build-text"></span>
+        <button type="button" class="ghost" id="btn-rotate">↻ Rotate (R)</button>
+        <button type="button" class="primary" id="btn-place">Place</button>
+        <button type="button" class="ghost" id="btn-cancel-build">Cancel (Esc)</button>
+      </div>
+      <ul id="feed" aria-live="polite"></ul>
+      <div id="toast" role="status"></div>
+      <div id="respawn" class="hidden"><h2>You have fallen</h2><p>Respawning in <b id="respawn-time">5</b>s…</p></div>
+      <div id="hotbar" aria-label="Combat skills">
+        <button class="hot" data-slot="0"></button><button class="hot" data-slot="1"></button>
+        <button class="hot" data-slot="2"></button><button class="hot" data-slot="3"></button>
+        <button class="hot dodge" id="btn-dodge" title="Dodge roll (Shift)" aria-label="Dodge roll"></button>
+      </div>
+      <p class="hint desktop-only">WASD move · Click/Space attack · 1-4 skills · Shift dodge · E gather / open · Q potion · I C B G K P M panels</p>
+
+      <div id="joystick" class="touch-only" aria-hidden="true"><div id="joystick-knob"></div></div>
+      <div class="touch-buttons touch-only ow-touch">
+        <button id="btn-potion" aria-label="Drink potion">🧪<small id="hud-potions-touch">0</small></button>
+        <button id="btn-action" aria-label="Gather or open">✋</button>
+        <button id="btn-attack" aria-label="Attack">⚔</button>
+      </div>
+    </section>
+
+    <section id="panel-inventory" class="modal hidden" role="dialog" aria-labelledby="inv-title">
+      <div class="panel">
+        <h2 id="inv-title">Inventory</h2>
+        <div class="slots" id="inv-slots"></div>
+        <p class="muted small" id="inv-detail">Tools in your bag work automatically. Your best weapon is used in combat.</p>
+        <button class="ghost close">Close</button>
+      </div>
+    </section>
+    <section id="panel-crafting" class="modal hidden" role="dialog" aria-labelledby="craft-title">
+      <div class="panel">
+        <h2 id="craft-title">Crafting</h2>
+        <p class="muted small" id="craft-stations"></p>
+        <div class="list" id="craft-list"></div>
+        <button class="ghost close">Close</button>
+      </div>
+    </section>
+    <section id="panel-build" class="modal hidden" role="dialog" aria-labelledby="build-title">
+      <div class="panel">
+        <h2 id="build-title">Build</h2>
+        <p class="muted small">Pick a structure, then place it in the world. Building inside the village is not allowed.</p>
+        <div class="list" id="build-list"></div>
+        <button class="ghost close">Close</button>
+      </div>
+    </section>
+    <section id="panel-skills" class="modal hidden" role="dialog" aria-labelledby="skills-title">
+      <div class="panel">
+        <h2 id="skills-title">Skills</h2>
+        <h3 class="sub">Combat skills <span class="points" id="skill-points"></span></h3>
+        <p class="muted small">Every combat level gives a skill point. Spend points to learn skills or raise their rank (stronger effect). Use them with keys 1-4 or the skill buttons.</p>
+        <div class="list" id="ability-list"></div>
+        <h3 class="sub">Trade skills</h3>
+        <div class="list" id="skills-list"></div>
+        <button class="ghost close">Close</button>
+      </div>
+    </section>
+    <section id="panel-gear" class="modal hidden" role="dialog" aria-labelledby="gear-title">
+      <div class="panel wide">
+        <h2 id="gear-title">Character</h2>
+        <div class="gear-layout">
+          <div>
+            <div class="equip-slots" id="equip-slots"></div>
+            <dl class="stat-list" id="stat-list"></dl>
+          </div>
+          <div>
+            <h3 class="sub">Gear bag <span class="muted" id="bag-count"></span></h3>
+            <div class="gear-bag" id="gear-bag"></div>
+            <div class="gear-detail" id="gear-detail"><p class="muted small">Pick a piece of gear to see it. Skeletons drop gear and ruin chests always hold some; better pieces have extra stats.</p></div>
+          </div>
+        </div>
+        <button class="ghost close">Close</button>
+      </div>
+    </section>
+    <section id="panel-pets" class="modal hidden" role="dialog" aria-labelledby="pets-title">
+      <div class="panel wide">
+        <h2 id="pets-title">Pets</h2>
+        <p class="muted small">Craft a charm, bond with its pet, and it fights beside you and boosts you with its aura. Pets level up from your fights and learn skills with their own skill points. One pet can be out at a time.</p>
+        <div class="list" id="pet-list"></div>
+        <button class="ghost close">Close</button>
+      </div>
+    </section>
+    <section id="panel-map" class="modal hidden" role="dialog" aria-labelledby="map-title">
+      <div class="panel wide map-panel">
+        <h2 id="map-title">Map</h2>
+        <canvas id="world-map" width="512" height="512" aria-label="Island map"></canvas>
+        <p class="muted small">🏘 village · 💀 ruins (number = danger level) · 🏠 your respawn point · ▲ you</p>
+        <button class="ghost close">Close</button>
+      </div>
+    </section>
+    <section id="panel-menu" class="modal hidden" role="dialog" aria-labelledby="menu-title">
+      <div class="panel narrow">
+        <h2 id="menu-title">Menu</h2>
+        <label class="check"><input type="checkbox" id="opt-shadows" /> Shadows</label>
+        <label class="check"><input type="checkbox" id="opt-grass" /> Grass</label>
+        <label class="check"><input type="checkbox" id="opt-bloom" /> Glow (HDR bloom)</label>
+        <label class="check"><input type="checkbox" id="opt-shake" /> Screen shake</label>
+        <label class="check"><input type="checkbox" id="opt-stats" /> Show FPS</label>
+        <label class="range">Music <input type="range" id="opt-music" min="0" max="100" step="5" /></label>
+        <label class="range">Sound effects <input type="range" id="opt-sfx" min="0" max="100" step="5" /></label>
+        <button class="ghost" id="btn-save">Save now</button>
+        <button class="ghost" id="btn-title">Save and return to title</button>
+        <button class="ghost danger" id="btn-delete">Delete this save…</button>
+        <div class="confirm" id="delete-confirm" hidden>
+          <p>Delete your hero and everything you built? This cannot be undone.</p>
+          <div class="row"><button class="ghost" id="btn-delete-no">Keep it</button><button class="primary danger-fill" id="btn-delete-yes">Delete</button></div>
+        </div>
+        <button class="primary close">Resume</button>
+        <p class="muted small credits">3D art: KayKit by Kay Lousberg (CC0). Single-player; progress is saved in this browser.</p>
+      </div>
+    </section>
+    <div id="fps" class="hidden"></div>
+    <script type="module" src="/src/openworld/main.ts"></script>
+  </body>
+</html>

@@ -1,0 +1,10 @@
+node_modules/
+.kaykit-cache/
+dist/
+dist-offline/
+target/
+.env
+.secrets/
+.data/
+test-results/
+*.log

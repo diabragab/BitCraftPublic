@@ -1,0 +1,14 @@
+{
+  "name": "kaykit-arena-gateway",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Login gateway + static host for the KayKit Arena web client (SpacetimeDB backend)",
+  "type": "module",
+  "main": "src/index.js",
+  "engines": { "node": ">=22.13" },
+  "scripts": {
+    "start": "node --disable-warning=ExperimentalWarning src/index.js",
+    "dev": "node --disable-warning=ExperimentalWarning --watch src/index.js",
+    "test": "node --disable-warning=ExperimentalWarning --test 'test/**/*.test.js'"
+  }
+}
