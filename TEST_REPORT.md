@@ -77,33 +77,62 @@ After the PR-review fixes the suite was run twice in a row: 17/17 both times. Ou
 
 ### Hearthwild open world — `npm run test:world`
 
-Serves the published page form (`artifact.html` wrapped in a bare document) under the strict policy and plays the core loop. Output after adding sound and the shader effects:
+Serves the published page form (`artifact.html` wrapped in a bare document) under the strict policy and plays the game. Output on the final build, which has sound, shader effects, HDR, gear, combat skills, pets and the action combat:
 ```
 ✔ page loads under the strict policy and shows the start screen
 ✔ start a new hero and enter the island — 10 ruins, 49 skeletons
 ✔ sound: the Play click starts the audio and the music plays — AudioContext running, 3 music notes scheduled, 0 effects so far
-✔ walk to a tree and chop it (+3 wood, woodcutting XP, outline, chop sounds) — wood=3, woodcutting xp=24, outline parts=1, 10 sound effects
+✔ walk to a tree and chop it (+3 wood, woodcutting XP, outline, chop sounds) — wood=3, woodcutting xp=24, outline parts=1, 9 sound effects
 ✔ chop a second tree — wood=6
 ✔ craft two planks from the crafting panel — planks=2, wood left=2
 ✔ build a wooden fence through the build panel — construction xp=5
 ✔ progress survives a reload (continue) — wood=2, structures=1
-✔ shader effects compile: water, wind, grass, fire, ore glow — 2614 grass tufts; built: crystal, fire, grass, water, wind
-✔ a slain skeleton burns away (dissolve shader) with its death sound — dissolve shader active, 7 sound effect(s)
+✔ shader effects compile: water, wind, grass, fire, ore glow — 2615 grass tufts; built: crystal, fire, grass, water, wind
+✔ a slain skeleton burns away (dissolve shader) with its death sound — dissolve shader active, 11 sound effect(s)
+✔ combat skills: the first skill point learns Shield Bash, key 1 stuns and damages a skeleton — hp 120 → 89, stunned, cooldown 6s on the hotbar, 2 sound effects
+✔ action: Shift rolls the hero forward and makes it untouchable for a moment — rolled 4.7 m, untouchable for 425 ms, cooldown 0 ms left
+✔ action: three quick attacks chain into a finisher that knocks the skeleton back — combo 0 → 1 → 2; the finisher pushed it from 2.0 m to 3.2 m
+✔ gear: craft a bone blade at the workbench, equip it, damage goes up — damage per hit 23 → 31
+✔ pets: bond a Skeleton Squire; it follows, fights, gains XP and learns Taunt — pet attacked 3×, pet XP 0 → 20, Taunt learned
+✔ HDR: the scene renders through a half-float target with bloom — half-float target, render + bloom + tone-mapping passes
+✔ skills, gear and pet survive a reload — skills {"shield_bash":1}, weapon kept, squire with 20 XP and Taunt
 ✔ no errors or CSP violations on desktop
-✔ phone: joystick moves the hero, the ✋ button gathers — moved 7.1 m, gathering started
-12/12 steps passed.
+✔ phone: joystick moves the hero, the ✋ button gathers, a skill button casts — moved 7.8 m, gathering started, skill button cast Shadowstep
+19/19 steps passed.
 ```
-On the final build the suite ran four times: three runs passed 12/12, and one passed 11/12. The output of that run was cut to its last lines, so which step failed was not recorded. Walking steps under software rendering are the likeliest cause, but that is unconfirmed.
+The suite passed 19/19 on two runs of the final build. Earlier, for the sound and shader round, it ran four times on that build: three passed and one failed a single step that was not recorded. That gave no answer on whether that intermittent failure is gone.
 
 How these were tested, and the limits:
 
-- **Sound:** the game is started with a real (trusted) click, and the test checks that the browser's audio context is running and counts the scheduled notes and effects. Nobody listened to it: the test is headless with no speakers, so how it sounds is unverified.
-- **Shaders:** "compile" means three.js built a program for each effect and no WebGL errors were logged. Two staged setups were needed:
-  - The ore-glow step moves the hero next to an iron vein, because none grow near the village.
-  - The dissolve step spawns and kills a skeleton through the simulation's internal methods, so it doesn't depend on a fight going a particular way.
-- **Visual check:** water, outline, ore glow, x-ray behind a house, grass, night fire and a skeleton mid-dissolve were all checked in screenshots. Motion (wind, flames) can't be judged from stills at the 0.5–2 FPS of software rendering.
+- **What the UI drives:** these go through the real UI, as a player would:
+  - learning skills (Learn button) and casting them (key 1, the touch button);
+  - crafting and equipping gear (crafting and character panels);
+  - bonding a pet and learning its skill (pets panel);
+  - attacking with Space;
+  - dodging (Shift);
+  - saving and continuing.
+- **Staged setup:** some setup goes through the simulation's internal methods, to keep the steps short and independent of chance:
+  - granting materials and moving the hero to a station or out of the village;
+  - spawning skeletons in front of the hero;
+  - killing leftover skeletons;
+  - a staged kill for the dissolve check.
+- **Combo step:** it calls `attack()` three times in one page call with the cooldown cleared. With software rendering a frame blocks the page for about a second, longer than the 1.3 s combo window, so key presses cannot be spaced like a player's.
+- **Sound:** the audio context is checked as running, and notes and effects are counted. Nobody listened to it.
+- **Shaders and effects:**
+  - "Compile" means three.js built a program for each one and nothing was logged as an error.
+  - Every class's skills, the pets, the combo, the dodge, the HDR glow by day and night, and the character, skills and pets panels were checked in screenshots. Those screenshots were taken with the page clock slowed so short effects could be captured.
+  - Motion (wind, flames, particles) can't be judged from stills at the 1–2 FPS of software rendering.
+- **HDR cost:** with software rendering, bloom roughly halves the frame rate (about 1.0 against 1.8–1.9 fps, measured with bloom toggled on and off). The cost on real GPUs is unmeasured, so bloom defaults to off on phones.
 
-Not covered by automation yet: real fights at ruins, chests, night spawns, iron/forge recipes and houses. The rules for these are in `sim.ts` and are reachable in play. Measured at the village before the effects: 99 draw calls. The effects add about four (water, grass, flames, outline) plus one per hero mesh for the x-ray.
+Not covered by automation yet:
+
+- real fights at ruins, chests and night spawns;
+- the iron and forge recipes, and houses;
+- skill ranks above 1 and every class's skills (only Shield Bash and Shadowstep are cast in the suite);
+- pets other than the squire;
+- gear drops, rarities and salvage.
+
+The rules for these are in `sim.ts` and were exercised in the scripted screenshot passes, but they have no assertions.
 
 ### Single-player arena page — `npm run test:offline`
 
@@ -148,6 +177,11 @@ The multiplayer E2E suite was re-run after the backend refactor: 17/17. The page
 | Screenshot review (shaders) | Half the grass blades were black: a double-sided material flips the normal of back faces, so they were lit from below | Each blade is two triangles of opposite winding, single-sided |
 | Screenshot review (shaders) | Campfire flames were pale squares: an alpha bias added in the port kept the quad corners opaque | Alpha erosion now matches the original (`noise × mask − age`); flames sit on top of the log pile and skip tone mapping |
 | Screenshot review (shaders) | A felled tree kept its outline until the next HUD refresh | The outline is cleared whenever resource nodes change |
+| Screenshot review (HDR) | The x-ray silhouette, in HDR cyan, bloomed into a white haze that hid the hero whenever a tree was in front | The x-ray stays below the bloom threshold; the threshold was raised to 1.5 |
+| Screenshot review (HDR) | Wide flashes and buff columns washed the scene out; "steel" effects read as pure white | Wide translucent shapes stay under the threshold (only thin rings, cores and particles glow); steel is a cooler blue-silver; slashes are thin crescents |
+| Screenshot review (pets) | The pet nameplate kept the level it was created with | It is refreshed with the HUD |
+| E2E | Test skeletons spawned as night wanderers vanished at once in daytime | Tests tie them to a ruin |
+| E2E | After the ruin steps the hero could be dead or respawning, so later setup moved a dead hero and every action was refused | Test setup waits for the respawn and heals the hero before each staged scene |
 
 ## 4. Not verified here (needs real hardware / hosting)
 

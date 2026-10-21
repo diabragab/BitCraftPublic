@@ -21,6 +21,10 @@ const PET_RADIUS = 0.4;
 const RESPAWN_MS = 5_000;
 const CHEST_COOLDOWN_MS = 10 * 60_000;
 const INTERACT_RANGE = 2.6;
+const DODGE_MS = 280; // the roll itself
+const DODGE_SPEED = 16; // m/s while rolling (about 4.5 m)
+const DODGE_COOLDOWN = 1200;
+const COMBO_WINDOW = 1300; // basic attacks this close together chain into a combo
 
 export interface Structure {
   id: string;
@@ -69,6 +73,13 @@ export interface PlayerState {
   shield: { amount: number; max: number; until: number } | null;
   skillReady: Record<string, number>;
   lastTarget: number | null;
+  /** Dodge roll: direction and end time; hits are ignored until `invulnUntil`. */
+  roll: { dx: number; dz: number; until: number } | null;
+  invulnUntil: number;
+  dodgeReady: number;
+  /** 0, 1, 2 within a chain of quick attacks; the third is the finisher. */
+  combo: number;
+  lastComboAt: number;
 }
 
 export interface Enemy {
@@ -134,7 +145,8 @@ export type WorldEvent =
   | { type: 'enemy-added'; enemy: Enemy }
   | { type: 'enemy-removed'; id: number }
   | { type: 'gather-hit'; node: ResourceNode }
-  | { type: 'player-attack'; facing: number }
+  | { type: 'player-attack'; facing: number; combo: number }
+  | { type: 'dodge'; x: number; z: number; facing: number }
   | { type: 'enemy-attack'; enemy: Enemy; target: 'player' | 'pet' }
   /** A combat skill went off: the renderer draws it, the audio plays it, the hero animates. */
   | {
@@ -152,7 +164,8 @@ export type WorldEvent =
   | { type: 'death' }
   | { type: 'respawn' };
 
-type RuntimeKeys = 'gather' | 'moving' | 'lastAttack' | 'lastHurt' | 'buffs' | 'shield' | 'skillReady' | 'lastTarget';
+type RuntimeKeys = 'gather' | 'moving' | 'lastAttack' | 'lastHurt' | 'buffs' | 'shield' | 'skillReady' | 'lastTarget'
+  | 'roll' | 'invulnUntil' | 'dodgeReady' | 'combo' | 'lastComboAt';
 type SavedPet = Pick<Pet, 'species' | 'xp' | 'skills' | 'hp' | 'downUntil'>;
 
 interface SaveData {
@@ -181,6 +194,9 @@ interface HitOpts {
   slow?: number;
   burn?: number;
   canCrit?: boolean;
+  /** Push the enemy this many metres away from `from`. */
+  knock?: number;
+  from?: { x: number; z: number };
 }
 
 const facingTo = (dx: number, dz: number) => Math.atan2(dx, dz);
@@ -224,6 +240,7 @@ export class OpenWorld {
       name, cls, x: 0, z: 7, facing: Math.PI, moving: false, hp: CLASSES[cls].hp, alive: true, respawnAt: 0,
       lastAttack: 0, lastHurt: 0, gold: 0, inv: { potion: 1 }, xp: skills, home: null, gather: null,
       skills: {}, gear: [], equipped: {}, buffs: [], shield: null, skillReady: {}, lastTarget: null,
+      roll: null, invulnUntil: 0, dodgeReady: 0, combo: 0, lastComboAt: 0,
     };
     this.dayOffset = 0.3 * DAY_MS - (Date.now() % DAY_MS); // a new game starts in the morning
     if (saved && saved.seed === seed) {
@@ -272,7 +289,10 @@ export class OpenWorld {
   }
 
   save() {
-    const { gather: _g, moving: _m, lastAttack: _a, lastHurt: _h, buffs: _b, shield: _s, skillReady: _r, lastTarget: _t, ...player } = this.player;
+    const {
+      gather: _g, moving: _m, lastAttack: _a, lastHurt: _h, buffs: _b, shield: _s, skillReady: _r, lastTarget: _t,
+      roll: _o, invulnUntil: _i, dodgeReady: _d, combo: _c, lastComboAt: _l, ...player
+    } = this.player;
     const data: SaveData = {
       v: 1, seed: this.gen.seed, player, nodes: Object.fromEntries(this.nodes), structures: this.structures,
       chests: Object.fromEntries(this.chests), dayOffset: this.dayOffset,
@@ -658,8 +678,13 @@ export class OpenWorld {
     p.lastAttack = now;
     p.facing = facing;
     p.gather = null;
-    this.onEvent({ type: 'player-attack', facing });
-    const base = this.attackDamage(st);
+    p.combo = now - p.lastComboAt < COMBO_WINDOW ? (p.combo + 1) % 3 : 0;
+    p.lastComboAt = now;
+    const finisher = p.combo === 2;
+    this.onEvent({ type: 'player-attack', facing, combo: p.combo });
+    // the third hit of a chain lands harder, reaches wider and knocks enemies back
+    const base = this.attackDamage(st) * (finisher ? 1.6 : 1);
+    const arc = cls.arc * (finisher ? 1.35 : 1);
     const hits = [...this.enemies.values()].filter((e) => {
       if (!e.alive) return false;
       const dx = e.x - p.x;
@@ -669,11 +694,11 @@ export class OpenWorld {
         return along > 0 && along <= cls.range && Math.abs(dx * Math.cos(facing) - dz * Math.sin(facing)) <= 1;
       }
       const d = Math.hypot(dx, dz);
-      return d <= cls.range + ENEMY_RADIUS && (d < 0.6 || Math.abs(angleDiff(facingTo(dx, dz), facing)) <= cls.arc);
+      return d <= cls.range + ENEMY_RADIUS && (d < 0.6 || Math.abs(angleDiff(facingTo(dx, dz), facing)) <= arc);
     });
     if (cls.ranged) hits.sort((a, b) => dist(a, p) - dist(b, p)).splice(1);
     if (hits[0]) p.lastTarget = hits[0].id;
-    for (const e of hits) this.hitEnemy(e, base, 'player');
+    for (const e of hits) this.hitEnemy(e, base, 'player', finisher ? { knock: 1.2, from: p } : {});
     return null;
   }
 
@@ -687,6 +712,25 @@ export class OpenWorld {
     p.hp += healed;
     this.onEvent({ type: 'float', x: p.x, z: p.z, text: `+${healed}`, style: 'heal' });
     return null;
+  }
+
+  /** A quick roll: moves you about 4.5 m and makes you untouchable for a moment. */
+  dodge(facing: number): string | null {
+    const p = this.player;
+    if (!p.alive) return 'You are dead';
+    const now = Date.now();
+    if (now < p.dodgeReady) return 'cooldown';
+    p.dodgeReady = now + DODGE_COOLDOWN;
+    p.invulnUntil = now + DODGE_MS + 150;
+    p.roll = { dx: Math.sin(facing), dz: Math.cos(facing), until: now + DODGE_MS };
+    p.facing = facing;
+    p.gather = null;
+    this.onEvent({ type: 'dodge', x: p.x, z: p.z, facing });
+    return null;
+  }
+
+  dodgeCooldownLeft(now = Date.now()) {
+    return Math.max(0, this.player.dodgeReady - now);
   }
 
   craft(id: string): string | null {
@@ -977,6 +1021,10 @@ export class OpenWorld {
     if (o.stun) e.stunUntil = Math.max(e.stunUntil, now + o.stun);
     if (o.slow) e.slowUntil = Math.max(e.slowUntil, now + o.slow);
     if (o.burn) e.burn = { dps: Math.max(1, Math.round(amount * 0.2)), until: now + o.burn, next: now + 1000, src };
+    if (o.knock && o.from) {
+      const d = Math.max(0.01, dist(e, o.from));
+      [e.x, e.z] = this.slide(e.x, e.z, ((e.x - o.from.x) / d) * o.knock, ((e.z - o.from.z) / d) * o.knock, ENEMY_RADIUS);
+    }
     this.onEvent({ type: 'float', x: e.x, z: e.z, text: `${dmg}${crit ? '!' : ''}`, style: crit ? 'crit' : src === 'pet' ? 'pet' : '' });
     const steal = st?.lifesteal ?? 0;
     if (steal > 0 && this.player.alive) this.player.hp = Math.min(this.maxHp(), this.player.hp + dmg * steal);
@@ -997,7 +1045,7 @@ export class OpenWorld {
     switch (fx.kind) {
       case 'nova': {
         const at = fx.at === 'target' && c.target ? c.target : c;
-        for (const e of this.enemiesNear(at.x, at.z, fx.radius)) this.hitEnemy(e, dmg * fx.mult, c.who, { stun: fx.stun, slow: fx.slow, burn: fx.burn });
+        for (const e of this.enemiesNear(at.x, at.z, fx.radius)) this.hitEnemy(e, dmg * fx.mult, c.who, { stun: fx.stun, slow: fx.slow, burn: fx.burn, knock: 1.4, from: at });
         this.onEvent({ ...base, x: at.x, z: at.z, radius: fx.radius });
         break;
       }
@@ -1006,7 +1054,7 @@ export class OpenWorld {
           const d = dist(e, c);
           if (d > 0.6 && Math.abs(angleDiff(facingTo(e.x - c.x, e.z - c.z), c.facing)) > fx.arc) continue;
           const exec = fx.execute && e.hp / e.maxHp < fx.execute ? 2 : 1;
-          this.hitEnemy(e, dmg * fx.mult * exec, c.who, { stun: fx.stun });
+          this.hitEnemy(e, dmg * fx.mult * exec, c.who, { stun: fx.stun, knock: 1.1, from: c });
         }
         this.onEvent({ ...base, radius: fx.range });
         break;
@@ -1027,7 +1075,7 @@ export class OpenWorld {
         }
         const tx = first ? first.x : c.x + sx * fx.range;
         const tz = first ? first.z : c.z + cz * fx.range;
-        if (first) for (const e of this.enemiesNear(tx, tz, fx.blast)) this.hitEnemy(e, dmg * fx.mult, c.who, { burn: fx.burn });
+        if (first) for (const e of this.enemiesNear(tx, tz, fx.blast)) this.hitEnemy(e, dmg * fx.mult, c.who, { burn: fx.burn, knock: 0.7, from: { x: tx, z: tz } });
         this.onEvent({ ...base, tx, tz, radius: fx.blast });
         break;
       }
@@ -1048,7 +1096,7 @@ export class OpenWorld {
         if (fx.blast) for (const e of this.enemiesNear(x, z, fx.blast)) passed.add(e);
         p.x = x;
         p.z = z;
-        for (const e of passed) this.hitEnemy(e, dmg * fx.mult, 'player');
+        for (const e of passed) this.hitEnemy(e, dmg * fx.mult, 'player', { knock: 1, from: { x, z } });
         this.onEvent({ ...base, tx: x, tz: z, radius: fx.blast ?? 1.4 });
         break;
       }
@@ -1058,7 +1106,7 @@ export class OpenWorld {
         this.pending.push({
           at: now + fx.delay,
           run: () => {
-            for (const e of this.enemiesNear(tx, tz, fx.radius)) this.hitEnemy(e, dmg * fx.mult, c.who, { stun: fx.stun });
+            for (const e of this.enemiesNear(tx, tz, fx.radius)) this.hitEnemy(e, dmg * fx.mult, c.who, { stun: fx.stun, knock: 2, from: { x: tx, z: tz } });
             this.onEvent({ type: 'skill-impact', element: def.element, x: tx, z: tz, radius: fx.radius });
           },
         });
@@ -1123,6 +1171,10 @@ export class OpenWorld {
   private hurtPlayer(dmg: number, source: string, now: number) {
     const p = this.player;
     if (!p.alive) return;
+    if (p.invulnUntil > now) {
+      this.onEvent({ type: 'float', x: p.x, z: p.z, text: 'Dodged', style: 'shield' });
+      return;
+    }
     let taken = Math.max(1, Math.round(dmg * armorFactor(this.stats(now).armor ?? 0)));
     if (p.shield && p.shield.until > now && p.shield.amount > 0) {
       const absorbed = Math.min(p.shield.amount, taken);
@@ -1142,6 +1194,7 @@ export class OpenWorld {
       p.respawnAt = now + RESPAWN_MS;
       p.buffs = [];
       p.shield = null;
+      p.roll = null;
       const lost = Math.floor(p.gold * 0.1);
       p.gold -= lost;
       this.input = { dx: 0, dz: 0 };
@@ -1367,6 +1420,14 @@ export class OpenWorld {
         rate += nearFire ? 5 : this.inVillage(p.x, p.z) ? 3 : 0.8;
       }
       p.hp = Math.min(max, p.hp + rate * dt);
+    }
+    if (p.roll) {
+      if (now < p.roll.until) {
+        [p.x, p.z] = this.slide(p.x, p.z, p.roll.dx * DODGE_SPEED * dt, p.roll.dz * DODGE_SPEED * dt, PLAYER_RADIUS);
+        p.moving = true;
+        return;
+      }
+      p.roll = null;
     }
     const { dx, dz } = this.input;
     if (dx === 0 && dz === 0) {

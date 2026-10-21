@@ -317,6 +317,18 @@ async function toStation(p, station) {
     w.player.hp = w.maxHp();
   }, station);
 }
+/** Test setup only: waits out a respawn, then puts the hero, healed, at (x, z) facing north. */
+async function readyHero(p, x, z) {
+  const end = Date.now() + 15000;
+  while (Date.now() < end && !(await snap(p)).alive) await sleep(500);
+  await p.evaluate(({ x, z }) => {
+    const w = window.__world.world;
+    w.player.x = x;
+    w.player.z = z;
+    w.player.facing = 0;
+    w.player.hp = w.maxHp();
+  }, { x, z });
+}
 /** Test setup only: a skeleton a few metres in front of the hero, facing it. */
 const spawnFoe = (p, kind = 'minion', level = 1, d = 2.2) =>
   p.evaluate(({ kind, level, d }) => {
@@ -333,13 +345,8 @@ const enemyState = (p, id) => p.evaluate((id) => {
 }, id);
 
 await step('combat skills: the first skill point learns Shield Bash, key 1 stuns and damages a skeleton', async () => {
-  // outside the village so the skeleton fights back
-  await pg.evaluate(() => {
-    const w = window.__world.world;
-    w.player.x = 60;
-    w.player.z = 40;
-    w.player.facing = 0;
-  });
+  // outside the village so the skeleton fights back; the previous steps fought next to a ruin
+  await readyHero(pg, 60, 40);
   await sleep(1500);
   const points = (await snap(pg)).points;
   assert(points >= 1, `no skill point at combat level 1 (${points})`);
@@ -366,7 +373,59 @@ await step('combat skills: the first skill point learns Shield Bash, key 1 stuns
   assert(cd !== '', 'hotbar shows no cooldown');
   const sfx = (await pg.evaluate(() => window.__world.audio.stats.sfx)) - sfx0;
   await pg.screenshot({ path: join(out, 'world-skill.png') });
+  await pg.evaluate((id) => {
+    const w = window.__world.world;
+    const e = w.enemies.get(id);
+    if (e?.alive) w.killEnemy(e); // clean up so it cannot steal the aim in later steps
+  }, id);
   return `hp ${before.hp} → ${after.hp}, stunned, cooldown ${cd}s on the hotbar, ${sfx} sound effects`;
+});
+
+await step('action: Shift rolls the hero forward and makes it untouchable for a moment', async () => {
+  const before = await snap(pg);
+  await pg.keyboard.press('Shift');
+  const inv = await pg.evaluate(() => window.__world.world.player.invulnUntil - Date.now());
+  await sleep(1000);
+  const after = await snap(pg);
+  const moved = Math.hypot(after.x - before.x, after.z - before.z);
+  assert(inv > 0, 'no invulnerability window');
+  assert(moved > 3, `rolled only ${moved.toFixed(2)} m`);
+  const cd = await pg.evaluate(() => window.__world.world.dodgeCooldownLeft());
+  return `rolled ${moved.toFixed(1)} m, untouchable for ${inv} ms, cooldown ${cd} ms left`;
+});
+
+await step('action: three quick attacks chain into a finisher that knocks the skeleton back', async () => {
+  const id = await spawnFoe(pg, 'warrior', 2, 2);
+  await sleep(1200);
+  // Three attacks in one call: with software rendering a frame blocks the page for about a
+  // second, longer than the combo window, so key presses here cannot be spaced like a player's.
+  // (Space-bar attacks through the real input path are covered by the pet step.)
+  const r = await pg.evaluate((id) => {
+    const w = window.__world.world;
+    const e = w.enemies.get(id);
+    const p = w.player;
+    const face = () => Math.atan2(e.x - p.x, e.z - p.z);
+    const out = [];
+    for (let i = 0; i < 3; i++) {
+      const d0 = Math.hypot(e.x - p.x, e.z - p.z);
+      p.lastAttack = 0; // test only: skip the cooldown wait
+      w.attack(face());
+      out.push({ combo: p.combo, before: d0, after: Math.hypot(e.x - p.x, e.z - p.z), alive: e.alive });
+    }
+    return out;
+  }, id);
+  const fin = r[2];
+  assert(r.map((x) => x.combo).join() === '0,1,2', `combo steps ${r.map((x) => x.combo)}`);
+  assert(!fin.alive || fin.after - fin.before > 0.7, `not knocked back: ${fin.before.toFixed(2)} → ${fin.after.toFixed(2)} m`);
+  assert(r[0].after - r[0].before < 0.3, 'a normal hit should not knock back');
+  await sleep(800);
+  await pg.screenshot({ path: join(out, 'world-combo.png') });
+  await pg.evaluate((id) => {
+    const w = window.__world.world;
+    const e = w.enemies.get(id);
+    if (e?.alive) w.killEnemy(e);
+  }, id);
+  return `combo 0 → 1 → 2; the finisher pushed it from ${fin.before.toFixed(1)} m to ${fin.after.toFixed(1)} m`;
 });
 
 await step('gear: craft a bone blade at the workbench, equip it, damage goes up', async () => {

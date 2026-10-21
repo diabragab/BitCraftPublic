@@ -84,6 +84,25 @@ A BitCraft-style sandbox with original rules, names and CC0 art. It plays in the
 - **Building:** campfire, tent, workbench, forge, house, fences and walls. Campfires, tents and houses become your respawn point.
 - **Skills:** woodcutting, mining, combat, crafting and construction, from 1 to 50, with speed and damage bonuses and unlocks.
 - **Danger:** a day/night cycle with night-time skeleton wanderers. Ruins get more dangerous the farther they are from the village.
+- **Action combat:**
+  - basic attacks chain into a three-hit combo whose finisher hits harder and knocks enemies back;
+  - **Shift** (or the roll button) dodges with a moment of invulnerability;
+  - hits flash enemies white, big hits shake the camera and briefly freeze the action (hit-stop).
+- **Combat skills:** four per class (Knight, Barbarian, Mage, Rogue) on keys **1-4** or touch buttons. Each combat level gives a point to learn a skill or raise its rank (up to 5). Every skill has its own effect, for example:
+  - Whirlwind's spinning blades;
+  - Frost Nova's ice spikes;
+  - Judgement's pillar of light;
+  - Meteor's fiery rock and scorch mark;
+  - Fan of Knives.
+- **Gear:** weapon, head, body, feet and trinket slots, and five rarities (common to legendary) with random bonus stats.
+  - Skeletons drop gear and every ruin chest holds a piece.
+  - Eight pieces can be crafted; higher crafting makes finer ones.
+  - Compare pieces, equip them, or salvage them for gold (**G**).
+- **Pets** (**P**): craft a charm to bond a pet; one is out at a time.
+  - The four pets are a Skeleton Squire (tank), an Ember Sprite (damage), a Moss Sprite (healer) and a Storm Sprite (speed).
+  - Pets fight beside you, draw enemies away, and give you an aura bonus.
+  - They level up from your fights and learn four skills each with their own skill points.
+- **HDR glow:** fire, magic, glowing ore and pets are brighter than white and bloom. This can be turned off in the menu, and it is off by default on phones.
 - **Saving:** progress is kept in the browser (`localStorage`).
 - **Sound and music:** all synthesized in the browser with the Web Audio API, so there are no audio files. Music changes key and tempo between day and night, and drums come in when skeletons are hunting you nearby. Ambience is wind with birds by day and crickets at night. There are sound effects for chopping, mining, combat, loot, crafting, building, level-ups and footsteps, and volume sliders in the menu.
 - **Shader effects**, ported from [GDQuest's Godot Shaders](https://github.com/gdquest-demos/godot-shaders) (MIT):
@@ -95,9 +114,19 @@ A BitCraft-style sandbox with original rules, names and CC0 art. It plays in the
   - glowing iron veins;
   - an x-ray silhouette of the hero when trees or buildings hide them.
 
-Controls: WASD to move, click or Space to attack, **E** to gather or open, Q for a potion, I/C/B/K/M for the inventory, crafting, build, skills and map panels. On phones: joystick, ⚔, ✋ and 🧪.
+Controls: WASD to move, click or Space to attack, **1-4** skills, **Shift** dodge, **E** to gather or open, Q for a potion, I/C/B/G/K/P/M for the inventory, crafting, build, character, skills, pets and map panels. On phones: joystick, ⚔, ✋, 🧪, the skill buttons and the roll button.
 
-Code is in `web/client/src/openworld/`: `terrain.ts` (world generation), `sim.ts` (rules), `render.ts` (chunks, instancing, day/night), `shaders.ts` (the effects), `main.ts` (UI). The audio engine is `web/client/src/audio.ts`. Run it with `npm run dev`, then open `/world.html`. Test it with `npm run test:world`.
+Code is in `web/client/src/openworld/`:
+
+- `terrain.ts`: world generation.
+- `content.ts`: items, gear, skills and pets as data.
+- `sim.ts`: the rules.
+- `render.ts`: chunks, instancing, day/night and the HDR pipeline.
+- `shaders.ts`: shader effects.
+- `vfx.ts`: skill effects and particles.
+- `petview.ts`: how pets look.
+- `icons.ts`: SVG icons.
+- `main.ts`: the UI. The audio engine is `web/client/src/audio.ts`. Run it with `npm run dev`, then open `/world.html`. Test it with `npm run test:world`.
 
 ### Single-player page (no server)
 

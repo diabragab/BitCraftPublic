@@ -17,6 +17,16 @@ import { PetView } from './petview';
 import { WorldRenderer } from './render';
 import { Dissolver, addXray } from './shaders';
 import { Vfx } from './vfx';
+import type { Element as FxElement } from './content';
+
+/** Basic-attack chains: three swings, the last one is the finisher. */
+const COMBO_CLIPS: Record<ClassId, string[]> = {
+  knight: ['1H_Melee_Attack_Chop', '1H_Melee_Attack_Slice_Horizontal', '1H_Melee_Attack_Chop'],
+  barbarian: ['2H_Melee_Attack_Chop', '2H_Melee_Attack_Slice', '2H_Melee_Attack_Chop'],
+  rogue: ['Dualwield_Melee_Attack_Stab', 'Dualwield_Melee_Attack_Slice', 'Dualwield_Melee_Attack_Stab'],
+  mage: ['Spellcast_Shoot', 'Spellcast_Shoot', 'Spellcast_Shoot'],
+};
+const CLASS_ELEMENT: Record<ClassId, FxElement> = { knight: 'steel', barbarian: 'blood', rogue: 'shadow', mage: 'arcane' };
 import { OpenWorld, type Enemy, type WorldEvent } from './sim';
 import { WORLD_HALF, WorldGen } from './terrain';
 
@@ -41,9 +51,9 @@ const MODELS = [
 const prefs = (() => {
   const mobile = matchMedia('(pointer: coarse)').matches;
   try {
-    return { shadows: !mobile, stats: false, music: 0.5, sfx: 0.8, grass: true, bloom: !mobile, ...JSON.parse(localStorage.getItem('hearthwild.prefs') ?? '{}') };
+    return { shadows: !mobile, stats: false, music: 0.5, sfx: 0.8, grass: true, bloom: !mobile, shake: true, ...JSON.parse(localStorage.getItem('hearthwild.prefs') ?? '{}') };
   } catch {
-    return { shadows: !mobile, stats: false, music: 0.5, sfx: 0.8, grass: true, bloom: !mobile };
+    return { shadows: !mobile, stats: false, music: 0.5, sfx: 0.8, grass: true, bloom: !mobile, shake: true };
   }
 })();
 const savePrefs = () => {
@@ -184,7 +194,17 @@ function startGame(name: string, cls: ClassId, saved: ReturnType<typeof OpenWorl
   const gatherClip = cls === 'barbarian' ? '2H_Melee_Attack_Chop' : '1H_Melee_Attack_Chop';
   r.scene.add(hero.root);
   addXray(hero.root); // the hero shows through trees and buildings
-  const enemyViews = new Map<number, { view: CharacterView; seen: { attack: number; hit: number }; diedAt?: number; dissolver?: Dissolver }>();
+  interface EnemyView {
+    view: CharacterView;
+    seen: { attack: number; hit: number };
+    diedAt?: number;
+    dissolver?: Dissolver;
+    /** This enemy's own materials, so a hit flash lights only it. */
+    mats: THREE.MeshStandardMaterial[];
+    base: THREE.Color[];
+    flash: number;
+  }
+  const enemyViews = new Map<number, EnemyView>();
   const bolts: Bolt[] = [];
   const addEnemyView = (e: Enemy) => {
     const view = createEnemyView(e.kind);
@@ -192,7 +212,15 @@ function startGame(name: string, cls: ClassId, saved: ReturnType<typeof OpenWorl
     view.target.set(e.x, world.gen.height(e.x, e.z), e.z);
     view.snap();
     r.scene.add(view.root);
-    enemyViews.set(e.id, { view, seen: { attack: e.attackSeq, hit: e.hitSeq } });
+    const mats: THREE.MeshStandardMaterial[] = [];
+    view.root.traverse((o) => {
+      const m = o as THREE.Mesh;
+      if (!m.isMesh) return;
+      const mat = (m.material as THREE.MeshStandardMaterial).clone();
+      m.material = mat;
+      mats.push(mat);
+    });
+    enemyViews.set(e.id, { view, seen: { attack: e.attackSeq, hit: e.hitSeq }, mats, base: mats.map((m) => m.emissive.clone()), flash: 0 });
   };
   for (const e of world.enemies.values()) addEnemyView(e);
 
@@ -252,18 +280,53 @@ function startGame(name: string, cls: ClassId, saved: ReturnType<typeof OpenWorl
     if (delay) setTimeout(() => audio.play(name, v), delay);
     else audio.play(name, v);
   };
+  // impact feedback: camera shake and a brief animation freeze ("hit-stop") on big hits
+  let shake = 0;
+  let hitStop = 0;
+  const impact = (strength: number, stop = 0) => {
+    if (prefs.shake) shake = Math.max(shake, strength);
+    hitStop = Math.max(hitStop, stop);
+  };
   const FLOAT_SFX: Record<string, Sfx> = { '': 'hit', crit: 'crit', player: 'hurt', heal: 'potion', gain: 'pickup', pet: 'hit', shield: 'equip' };
   world.onEvent = (e: WorldEvent) => {
     switch (e.type) {
       case 'float':
         floatText(e.x, e.z, e.text, e.style);
         if (e.style !== 'pet') sfxAt(FLOAT_SFX[e.style], e.x, e.z);
+        if (e.style === 'crit') impact(0.15, 0.05);
+        if (e.style === 'player') impact(0.2);
         break;
+      case 'dodge': {
+        hero.play('Dodge_Forward');
+        vfx.dust(e.x, e.z, 14);
+        vfx.trail(e.x, e.z, e.x + Math.sin(e.facing) * 4.5, e.z + Math.cos(e.facing) * 4.5, CLASS_ELEMENT[cls]);
+        audio.play('dash');
+        break;
+      }
       case 'skill': {
         const def = ALL_SKILLS.get(e.id);
         if (e.who === 'player' && e.clip) hero.play(e.clip);
         const tx = e.tx ?? e.x;
         const tz = e.tz ?? e.z;
+        const mine = e.who === 'player';
+        const IMPACT: Partial<Record<string, [number, number]>> = {
+          nova: [0.45, 0.08], cone: [0.3, 0.06], dash: [0.2, 0.04], chain: [0.2, 0], bolt: [0.15, 0], buff: [0.08, 0], heal: [0.08, 0], taunt: [0.2, 0],
+        };
+        const [shk, stop] = IMPACT[e.kind] ?? [0, 0];
+        impact(mine ? shk : shk * 0.4, mine ? stop : 0);
+        // signature effects on top of the generic one for the skill's kind
+        const r0 = e.radius ?? 3;
+        switch (e.id) {
+          case 'whirlwind': vfx.spin(() => hero.root.position, r0, e.element, 0.8); break;
+          case 'frost_nova': vfx.spikes(e.x, e.z, r0, 'frost', 22); break;
+          case 'thorn_snare': vfx.spikes(e.x, e.z, r0, 'nature', 14); break;
+          case 'grave_quake': vfx.spikes(e.x, e.z, r0, 'bone', 16); vfx.dust(e.x, e.z, 24); break;
+          case 'judgement': vfx.pillar(e.x, e.z, 'holy', 1.8); vfx.dust(e.x, e.z, 24); break;
+          case 'thunderclap': vfx.pillar(e.x, e.z, 'storm', 1.2); vfx.lightning([[e.x - 1.5, e.z - 1], [e.x, e.z], [e.x + 1.5, e.z + 1]], 'storm'); break;
+          case 'inferno': vfx.pillar(e.x, e.z, 'fire', 1.6); vfx.scorch(e.x, e.z, r0); break;
+          case 'fan_of_knives': vfx.knives(e.x, e.z, r0 + 1, 'steel', 18); break;
+          case 'leap': case 'shadowstep': vfx.dust(e.x, e.z, 10); vfx.dust(tx, tz, 18); break;
+        }
         switch (e.kind) {
           case 'nova': vfx.ring(e.x, e.z, e.radius ?? 3, e.element); sfxAt(e.element === 'frost' ? 'frost' : 'nova', e.x, e.z); break;
           case 'cone': vfx.slash(e.x, e.z, e.facing, e.radius ?? 3, def?.effect.kind === 'cone' ? def.effect.arc : 1, e.element); sfxAt('slash', e.x, e.z); break;
@@ -283,7 +346,13 @@ function startGame(name: string, cls: ClassId, saved: ReturnType<typeof OpenWorl
         }
         break;
       }
-      case 'skill-impact': vfx.ring(e.x, e.z, e.radius, e.element); sfxAt('explosion', e.x, e.z); break;
+      case 'skill-impact':
+        vfx.ring(e.x, e.z, e.radius, e.element);
+        vfx.scorch(e.x, e.z, e.radius, e.element);
+        vfx.dust(e.x, e.z, 30);
+        sfxAt('explosion', e.x, e.z);
+        impact(0.8, 0.1);
+        break;
       case 'pet-summon': {
         showPet();
         const pet = world.pet();
@@ -337,11 +406,20 @@ function startGame(name: string, cls: ClassId, saved: ReturnType<typeof OpenWorl
         // the tool lands about a third of a second into the swing
         sfxAt(e.node.kind === 'tree' ? 'chop' : 'mine', e.node.x, e.node.z, 350);
         break;
-      case 'player-attack':
-        hero.play(clsDef.attackClip);
-        audio.play(clsDef.ranged ? 'zap' : 'swing');
-        if (clsDef.ranged) spawnBolt(hero.root.position, e.facing, clsDef.range, '#7fd4ff');
+      case 'player-attack': {
+        const finisher = e.combo === 2;
+        hero.play(COMBO_CLIPS[cls][e.combo] ?? clsDef.attackClip);
+        audio.play(clsDef.ranged ? 'zap' : finisher ? 'slash' : 'swing');
+        const p = world.player;
+        if (clsDef.ranged) {
+          spawnBolt(hero.root.position, e.facing, clsDef.range, '#7fd4ff');
+          if (finisher) vfx.projectile(p.x, p.z, p.x + Math.sin(e.facing) * clsDef.range, p.z + Math.cos(e.facing) * clsDef.range, 'arcane', 26, 0.22);
+        } else {
+          vfx.slash(p.x, p.z, e.facing, clsDef.range + 0.3, clsDef.arc * (finisher ? 1.35 : 1), finisher ? 'holy' : CLASS_ELEMENT[cls], finisher ? 1.6 : 0.8);
+        }
+        if (finisher) impact(0.25, 0.06);
         break;
+      }
       case 'enemy-attack': sfxAt(e.enemy.kind === 'mage' ? 'zap' : 'enemy-swing', e.enemy.x, e.enemy.z); break;
       case 'death':
         hero.setAlive(false);
@@ -394,6 +472,14 @@ function startGame(name: string, cls: ClassId, saved: ReturnType<typeof OpenWorl
   const castSkill = (i: number) => {
     if (build || document.querySelector('.modal:not(.hidden)')) return;
     const err = world.useSkill(i, aimFacing());
+    if (err && err !== 'cooldown') toast(err, 'error');
+  };
+  /** Rolls the way you are steering, or the way you face when standing still. */
+  const doDodge = () => {
+    if (build || document.querySelector('.modal:not(.hidden)')) return;
+    const m = input.move();
+    const facing = Math.hypot(m.x, m.z) > 0.1 ? Math.atan2(m.x, m.z) : world.player.facing;
+    const err = world.dodge(facing);
     if (err && err !== 'cooldown') toast(err, 'error');
   };
   const doInteract = () => {
@@ -774,7 +860,13 @@ function startGame(name: string, cls: ClassId, saved: ReturnType<typeof OpenWorl
   }
 
   // ---- hotbar
-  const hotButtons = [...document.querySelectorAll<HTMLButtonElement>('#hotbar .hot')];
+  const hotButtons = [...document.querySelectorAll<HTMLButtonElement>('#hotbar .hot:not(.dodge)')];
+  const dodgeButton = $<HTMLButtonElement>('btn-dodge');
+  dodgeButton.innerHTML = `${skillIcon('dash', CLASS_ELEMENT[cls], 46)}<span class="key">⇧</span><span class="cd"></span>`;
+  dodgeButton.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    doDodge();
+  });
   function drawHotbar() {
     world.classSkills().forEach((def, i) => {
       const b = hotButtons[i];
@@ -799,6 +891,12 @@ function startGame(name: string, cls: ClassId, saved: ReturnType<typeof OpenWorl
       cd.textContent = left > 0 ? String(Math.ceil(left / 1000)) : '';
       hotButtons[i].classList.toggle('ready', !!world.skillRank(def.id) && left === 0);
     });
+    const left = world.dodgeCooldownLeft(now);
+    const cd = dodgeButton.querySelector<HTMLElement>('.cd');
+    if (cd) {
+      cd.style.setProperty('--cd', String(left / 1200));
+      cd.textContent = '';
+    }
   }
 
   const toMap = (x: number, z: number, size: number) => [((x + WORLD_HALF) / (WORLD_HALF * 2)) * size, ((z + WORLD_HALF) / (WORLD_HALF * 2)) * size];
@@ -869,6 +967,7 @@ function startGame(name: string, cls: ClassId, saved: ReturnType<typeof OpenWorl
     }
     if (k === 'e') doInteract();
     if (k >= '1' && k <= '4') castSkill(Number(k) - 1);
+    if (k === 'shift') doDodge();
     if (k === 'r' && build) build.rot += Math.PI / 4;
     const map: Record<string, Panel> = { i: 'inventory', c: 'crafting', b: 'build', g: 'gear', k: 'skills', p: 'pets', m: 'map' };
     if (map[k]) openPanel(map[k]);
@@ -904,6 +1003,12 @@ function startGame(name: string, cls: ClassId, saved: ReturnType<typeof OpenWorl
   bloom.onchange = () => {
     prefs.bloom = bloom.checked;
     r.setBloom(prefs.bloom);
+    savePrefs();
+  };
+  const shakeOpt = $<HTMLInputElement>('opt-shake');
+  shakeOpt.checked = prefs.shake;
+  shakeOpt.onchange = () => {
+    prefs.shake = shakeOpt.checked;
     savePrefs();
   };
   const stats = $<HTMLInputElement>('opt-stats');
@@ -958,6 +1063,9 @@ function startGame(name: string, cls: ClassId, saved: ReturnType<typeof OpenWorl
   r.renderer.setAnimationLoop((time) => {
     timer.update(time);
     const dt = Math.min(timer.getDelta(), 0.1);
+    // hit-stop: animations nearly freeze for a few frames, effects keep going
+    const animDt = hitStop > 0 ? dt * 0.08 : dt;
+    hitStop = Math.max(0, hitStop - dt);
     const p = world.player;
     sendMove();
     if (input.wantsAttack() && !build) doAttack();
@@ -969,7 +1077,7 @@ function startGame(name: string, cls: ClassId, saved: ReturnType<typeof OpenWorl
     hero.targetFacing = p.facing;
     hero.moving = p.moving;
     hero.setHealth(p.hp, world.maxHp());
-    hero.update(dt);
+    hero.update(animDt);
     stepTimer = p.moving && p.alive ? stepTimer + dt : 0.25;
     if (stepTimer > 0.32) {
       stepTimer = 0;
@@ -1008,8 +1116,14 @@ function startGame(name: string, cls: ClassId, saved: ReturnType<typeof OpenWorl
         ev.view.play(ev.view.attackClip);
         if (e.kind === 'mage') spawnBolt(ev.view.root.position, e.facing, 8, '#b06cff');
       } else if (e.hitSeq !== ev.seen.hit && e.alive) ev.view.play('Hit_A');
+      if (e.hitSeq !== ev.seen.hit) ev.flash = 1;
+      if (ev.flash > 0) {
+        ev.flash = Math.max(0, ev.flash - dt * 7);
+        // HDR white, so the flash blooms
+        ev.mats.forEach((m, i) => m.emissive.copy(ev.base[i]).addScalar(ev.flash * 2.4));
+      }
       ev.seen = { attack: e.attackSeq, hit: e.hitSeq };
-      ev.view.update(dt);
+      ev.view.update(animDt);
     }
     // pet
     const pet = world.pet();
@@ -1018,7 +1132,7 @@ function startGame(name: string, cls: ClassId, saved: ReturnType<typeof OpenWorl
       petView.facing = pet.facing;
       petView.moving = pet.moving;
       petView.setHealth(pet.hp, world.petMaxHp(pet));
-      petView.update(dt, pet.hp > 0, pet.attackSeq, pet.hitSeq);
+      petView.update(animDt, pet.hp > 0, pet.attackSeq, pet.hitSeq);
     }
     // effects and status markers
     vfx.update(dt);
@@ -1035,7 +1149,7 @@ function startGame(name: string, cls: ClassId, saved: ReturnType<typeof OpenWorl
       }
     }
     const shield = p.shield && p.shield.until > nowMs ? p.shield.amount / Math.max(1, p.shield.max) : 0;
-    vfx.follow(hero.root.position, shield, p.buffs.at(-1)?.element ?? null, marks);
+    vfx.follow(hero.root.position, shield, p.buffs.at(-1)?.element ?? null, marks, dt);
     for (const b of [...bolts]) if (!b.update(dt)) {
       b.mesh.removeFromParent();
       bolts.splice(bolts.indexOf(b), 1);
@@ -1062,8 +1176,12 @@ function startGame(name: string, cls: ClassId, saved: ReturnType<typeof OpenWorl
     camTarget.lerp(hero.root.position, smooth(6, dt));
     const portrait = w() < h();
     const dist = (portrait ? 1.25 : 1) * zoom;
-    r.camera.position.set(camTarget.x, camTarget.y + 15 * dist, camTarget.z + 11 * dist);
-    r.camera.lookAt(camTarget.x, camTarget.y + 0.8, camTarget.z);
+    shake = Math.max(0, shake - dt * 2.4);
+    const sx = (Math.random() - 0.5) * shake;
+    const sy = (Math.random() - 0.5) * shake;
+    const sz = (Math.random() - 0.5) * shake;
+    r.camera.position.set(camTarget.x + sx, camTarget.y + 15 * dist + sy, camTarget.z + 11 * dist + sz);
+    r.camera.lookAt(camTarget.x + sx * 0.4, camTarget.y + 0.8, camTarget.z + sz * 0.4);
     r.updateDayNight(camTarget);
     r.render();
     hero.placePlate(r.camera, w(), h());

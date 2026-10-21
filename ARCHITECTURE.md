@@ -89,14 +89,29 @@ Clients **cannot** set position, health, gold, kills or cooldowns: those columns
 |---|---|
 | `openworld/noise.ts` | Seeded simplex/fbm/ridged noise and a hash RNG. |
 | `openworld/terrain.ts` | `WorldGen`: island heightmap (fbm hills + ridged mountains, island falloff, flattened village), biomes, flat-shaded 64 m terrain chunk meshes, deterministic resource nodes per chunk, the village layout and 10 ruins with spawns and chests. Pure functions of the seed. |
-| `openworld/content.ts` | Items, recipes (with station and skill requirements), structures, skills with the XP curve, resource nodes, tool bonuses and enemy stats. |
-| `openworld/sim.ts` | `OpenWorld`: the rules. Covers collision (water, village and ruin props, built structures including rotated walls, standing resource nodes), gathering (timed hits, tool and skill speed, depletion and regrowth), crafting, building validation, combat, enemy AI (aggro, leash, steering), night wanderers, regeneration, death and respawn at your home, loot chests and saving. It runs on a 50 ms timer with timestamped input, like the arena's offline simulation. |
+| `openworld/content.ts` | All game data: items, recipes (including gear outputs), structures, trade skills with the XP curve, resource nodes, tool bonuses and enemy stats. Also the stats gear and buffs can change, element colours (CSS for icons, linear HDR for effects), gear bases and rarities, the 16 class skills, and the 4 pet species with their auras and skills. Skill effects are one data type (nova, cone, bolt, dash, meteor, chain, buff, heal, taunt) shared by players and pets. |
+| `openworld/sim.ts` | `OpenWorld`: the rules. Covers collision (water, village and ruin props, built structures including rotated walls, standing resource nodes), gathering (timed hits, tool and skill speed, depletion and regrowth), crafting, building validation, combat, enemy AI (aggro, leash, steering), night wanderers, regeneration, death and respawn at your home, loot chests and saving. It runs on a 50 ms timer with timestamped input, like the arena's offline simulation. On top of that:
+
+- **Stats** add up gear, buffs and the pet's aura.
+- **Skill effects** (`cast`) are shared by your skills and your pet's.
+- **Status effects** on enemies: stun, slow, burn, taunt and pet aggro.
+- **Combat feel:** knockback, the three-hit combo and the dodge roll with i-frames.
+- **Gear:** rolls, drops, crafting quality, equip and salvage.
+- **Pet AI:** heel, target what you fight, use skills when it makes sense, get knocked out and recover.
+- **Pet XP** comes from your kills. |
 | `openworld/render.ts` | Chunk streaming (2 chunks built per frame, nearest first), instanced resources, buildings and structures (one draw call per model part), water, sun/moon and sky colour by time of day, campfire lights, the build-placement ghost and terrain picking. |
 | `openworld/shaders.ts` | Effects ported from GDQuest's Godot Shaders (MIT). Most are GLSL injected into three.js's built-in materials with `onBeforeCompile`, so lighting, fog and shadows keep working: tree wind (with matching shadow depth materials), grass wind and the push away from the hero, the iron-vein fresnel glow, the dissolve on dying skeletons and the interact outline. Water and fire are `ShaderMaterial`s: water depth comes from a heightmap texture instead of the depth buffer, and flames are GPU-animated billboards. The x-ray is a second copy of the hero drawn with an inverted depth test between the scene and the hero. One clock, one generated noise texture and the hero's position are shared by all effects. |
 | `audio.ts` | Procedural Web Audio: a bus mixer (music, effects, ambience) feeding a limiter. Generative music is scheduled 250 ms ahead: a pad, bass and a random-walk melody, in D major by day and A minor at night, with a drum layer faded in during fights. It also plays wind, birds and crickets and synthesizes about 20 effects. Effects fade over 30 m from the hero. It starts on the Play click, because browsers block sound before a gesture, and pauses while the tab is hidden. |
-| `openworld/main.ts` | Start screen (continue or new hero), game loop, input, HUD, the inventory, crafting, build, skills, map and menu panels, the minimap, and the mapping from world events to sounds and effects. |
+| `openworld/vfx.ts` | Combat effects: rings, crescent slashes, projectiles, lightning, meteors, light pillars, spikes, spinning blades, flying knives, scorch marks, buff columns and auras, status markers, and the force-field shield bubble. Sparks, embers, trails and dust share one GPU particle system (a single `Points` draw, simulated on the CPU). |
+| `openworld/petview.ts` | Pets on screen. The squire is an animated, scaled KayKit skeleton; the sprites are procedural glowing spirits. |
+| `openworld/icons.ts` | SVG icons drawn from 32 glyphs on element-coloured tiles, with rarity frames for gear. |
+| `openworld/main.ts` | Start screen (continue or new hero), game loop, input, HUD, the hotbar, buffs and pet vitals, the minimap and all panels (inventory, crafting, build, character/gear, skills, pets, map, menu). It also maps world events to sounds and effects, and handles hit-stop, camera shake and enemy hit flashes. |
 
 Only changes are saved (player, depleted nodes, structures, chest timers): the untouched world regenerates from the seed. The rules are plain data plus functions with time passed in, so they can move into a SpacetimeDB module for multiplayer the same way the arena's did.
+
+### HDR rendering
+
+`render.ts` renders the scene into a half-float target, so colours above 1.0 survive. UnrealBloom then spreads light from anything brighter than 1.5, a threshold sunlit terrain does not reach. OutputPass tone-maps the result (ACES) and converts it to sRGB. Effects, fire, ore glow and pets use HDR colours, so only they glow. Measured with software rendering (Chromium, SwiftShader, no GPU), bloom roughly halves the frame rate (about 1.0 against 1.8–1.9 fps). The cost on real GPUs has not been measured, which is why bloom defaults to off on phones.
 
 ## Single-player build
 

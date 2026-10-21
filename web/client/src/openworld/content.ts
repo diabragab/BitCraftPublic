@@ -175,7 +175,7 @@ export type Glyph =
 /** Element colours: CSS for the UI and linear HDR (values above 1 glow under bloom) for effects. */
 export type Element = 'steel' | 'holy' | 'blood' | 'fire' | 'frost' | 'arcane' | 'shadow' | 'nature' | 'storm' | 'bone';
 export const ELEMENTS: Record<Element, { css: [string, string]; hdr: [number, number, number] }> = {
-  steel: { css: ['#c9d3e0', '#4d5b70'], hdr: [2.2, 2.4, 2.8] },
+  steel: { css: ['#c9d3e0', '#4d5b70'], hdr: [1.4, 1.9, 3.2] },
   holy: { css: ['#ffe9a3', '#b8862b'], hdr: [4.0, 3.2, 1.4] },
   blood: { css: ['#ff8a80', '#8e1b1b'], hdr: [4.0, 0.5, 0.4] },
   fire: { css: ['#ffc46b', '#c2410c'], hdr: [5.0, 1.8, 0.4] },
@@ -184,7 +184,7 @@ export const ELEMENTS: Record<Element, { css: [string, string]; hdr: [number, nu
   shadow: { css: ['#b7a6d9', '#2e1f47'], hdr: [1.8, 0.9, 3.2] },
   nature: { css: ['#c5f59a', '#2f7d32'], hdr: [1.4, 4.2, 1.0] },
   storm: { css: ['#d2f4ff', '#3b5bdb'], hdr: [2.2, 3.4, 6.0] },
-  bone: { css: ['#f1ead8', '#7c6f5a'], hdr: [2.6, 3.0, 4.2] },
+  bone: { css: ['#f1ead8', '#7c6f5a'], hdr: [1.9, 2.3, 3.4] },
 };
 
 // ---------------------------------------------------------------- gear

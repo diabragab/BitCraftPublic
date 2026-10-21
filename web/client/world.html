@@ -84,8 +84,9 @@
       <div id="hotbar" aria-label="Combat skills">
         <button class="hot" data-slot="0"></button><button class="hot" data-slot="1"></button>
         <button class="hot" data-slot="2"></button><button class="hot" data-slot="3"></button>
+        <button class="hot dodge" id="btn-dodge" title="Dodge roll (Shift)" aria-label="Dodge roll"></button>
       </div>
-      <p class="hint desktop-only">WASD move · Click/Space attack · 1-4 skills · E gather / open · Q potion · I C B G K P M panels</p>
+      <p class="hint desktop-only">WASD move · Click/Space attack · 1-4 skills · Shift dodge · E gather / open · Q potion · I C B G K P M panels</p>
 
       <div id="joystick" class="touch-only" aria-hidden="true"><div id="joystick-knob"></div></div>
       <div class="touch-buttons touch-only ow-touch">
@@ -169,6 +170,7 @@
         <label class="check"><input type="checkbox" id="opt-shadows" /> Shadows</label>
         <label class="check"><input type="checkbox" id="opt-grass" /> Grass</label>
         <label class="check"><input type="checkbox" id="opt-bloom" /> Glow (HDR bloom)</label>
+        <label class="check"><input type="checkbox" id="opt-shake" /> Screen shake</label>
         <label class="check"><input type="checkbox" id="opt-stats" /> Show FPS</label>
         <label class="range">Music <input type="range" id="opt-music" min="0" max="100" step="5" /></label>
         <label class="range">Sound effects <input type="range" id="opt-sfx" min="0" max="100" step="5" /></label>

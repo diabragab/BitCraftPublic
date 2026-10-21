@@ -23,17 +23,17 @@ Every used repository contains `LICENSE.txt` stating **Creative Commons Zero (CC
 `web/tools/build-assets.mjs` (run with `npm run assets` in `web/`):
 
 1. Partial-clones each repository at the **pinned commit** above (`--filter=blob:none`, so only the needed files are downloaded).
-2. Character GLBs: keeps only the 10 animation clips the game uses (of 76–95), removes accessory meshes the class does not use, then `dedup → weld → resample → prune → quantize`.
+2. Character GLBs: keeps only the animation clips the games use (19 for heroes, 10 for skeletons, of 76–95), removes accessory meshes the class does not use, then `dedup → weld → resample → prune → quantize`.
 3. Props (`.gltf.glb`, `.gltf + .bin + .png`): same optimisation, converted to single `.glb` files.
 4. Writes `web/client/public/assets/manifest.json` (source path → output, sizes).
 
-Result: **≈30 MB of source files → 6.8 MB** (72 files) on disk, and roughly half that over the wire (the gateway serves gzip; e.g. `knight.glb` 521 KB → 204 KB).
+Result: **≈30 MB of source files → 8.0 MB** (72 files) on disk, and roughly half that over the wire (the gateway serves gzip). The heroes grew from about 0.5 MB to about 0.8 MB each when Hearthwild's skill animations were added.
 
 ## Selected files
 
 | Category | Pack | Files (output names) | Notes |
 |---|---|---|---|
-| Player characters (rigged, animated) | Adventurers | `characters/knight`, `barbarian`, `mage`, `rogue` | Rogue_Hooded skipped. Clips kept: Idle, Running_A, 1H/2H melee chop, Dual-wield stab, Spellcast_Shoot, Hit_A, Death_A, Death_A_Pose, Cheer. |
+| Player characters (rigged, animated) | Adventurers | `characters/knight`, `barbarian`, `mage`, `rogue` | Rogue_Hooded skipped. Clips kept: Idle, Running_A, 1H/2H melee chop, Dual-wield stab, Spellcast_Shoot, Hit_A, Death_A, Death_A_Pose, Cheer, plus for Hearthwild's skills, combos and dodge: 1H slice horizontal, 2H slice, 2H spin, dual-wield slice, Spellcast_Raise, Spellcast_Long, Dodge_Forward, Block, Jump_Full_Short. |
 | Enemies (rigged, animated) | Skeletons | `characters/skeleton_minion`, `skeleton_warrior`, `skeleton_rogue`, `skeleton_mage` | Clips additionally include Walking_A and Spawn_Ground_Skeletons. |
 | Weapons / equipment | Skeletons | `weapons/skeleton_blade`, `skeleton_axe`, `skeleton_staff`, `skeleton_shield_small_a` | Attached to `handslot.r` / `handslot.l` bones at runtime. Player weapons are part of the Adventurers character files. |
 | Dungeon environment | Dungeon Remastered | floors (`floor_tile_large`, `floor_dirt_large`, `floor_tile_large_rocks`), walls (`wall`, `wall_cracked`), `pillar`, `column`, `rubble_half`, `banner_patternA_red`, `banner_shield_red`, `torch_lit`, `candle_triple` | 4×4 m modules; used unscaled. |

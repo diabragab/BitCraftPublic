@@ -149,3 +149,6 @@ h3.sub { margin: 10px 0 0; font-size: 15px; display: flex; gap: 8px; align-items
 .pet-card .actions button { min-height: 36px; padding: 6px 12px; }
 .pet-card .skills { display: flex; flex-direction: column; gap: 6px; }
 @media (max-width: 600px) { .pet-card .top { grid-template-columns: 44px 1fr; } .pet-card .top svg { width: 44px; height: 44px; } .pet-card .actions { grid-column: 1 / -1; flex-direction: row; } }
+
+.hot.dodge { width: 46px; height: 46px; min-height: 46px; align-self: flex-end; }
+@media (pointer: coarse) { .hot.dodge { width: 52px; height: 52px; min-height: 52px; } }
