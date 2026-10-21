@@ -77,30 +77,36 @@ After the PR-review fixes the suite was run twice in a row: 17/17 both times. Ou
 
 ### Hearthwild open world — `npm run test:world`
 
-Serves the published page form (`artifact.html` wrapped in a bare document) under the strict policy and plays the game. Output on the final build, which has sound, shader effects, HDR, gear, combat skills, pets and the action combat:
+Serves the published page form (`artifact.html` wrapped in a bare document) under the strict policy and plays the game. Output on the final build, which plays its spell effects with rollshade on three.js `WebGPURenderer` (here on its WebGL2 fallback: the container has no GPU, so Chromium runs SwiftShader and has no WebGPU):
 ```
 ✔ page loads under the strict policy and shows the start screen
 ✔ start a new hero and enter the island — 10 ruins, 49 skeletons
-✔ sound: the Play click starts the audio and the music plays — AudioContext running, 3 music notes scheduled, 0 effects so far
-✔ walk to a tree and chop it (+3 wood, woodcutting XP, outline, chop sounds) — wood=3, woodcutting xp=24, outline parts=1, 9 sound effects
+✔ sound: the Play click starts the audio and the music plays — AudioContext running, 7 music notes scheduled, 0 effects so far
+✔ walk to a tree and chop it (+3 wood, woodcutting XP, outline, chop sounds) — wood=3, woodcutting xp=24, outline parts=1, 7 sound effects
 ✔ chop a second tree — wood=6
 ✔ craft two planks from the crafting panel — planks=2, wood left=2
 ✔ build a wooden fence through the build panel — construction xp=5
 ✔ progress survives a reload (continue) — wood=2, structures=1
-✔ shader effects compile: water, wind, grass, fire, ore glow — 2615 grass tufts; built: crystal, fire, grass, water, wind
-✔ a slain skeleton burns away (dissolve shader) with its death sound — dissolve shader active, 11 sound effect(s)
-✔ combat skills: the first skill point learns Shield Bash, key 1 stuns and damages a skeleton — hp 120 → 89, stunned, cooldown 6s on the hotbar, 2 sound effects
-✔ action: Shift rolls the hero forward and makes it untouchable for a moment — rolled 4.7 m, untouchable for 425 ms, cooldown 0 ms left
+✔ shader effects compile: water, wind, grass, ore glow; campfires burn (rollshade loop) — 2615 grass tufts, 1 campfire loop(s); node materials: crystal, flash, grass, outline, water, wind, xray
+✔ a slain skeleton burns away (rollshade dissolve) with its death sound — dissolve status started, 14 sound effect(s)
+✔ combat skills: the first skill point learns Shield Bash, key 1 stuns and damages a skeleton — hp 120 → 89 after the hit landed, stun status shown, cooldown 6s on the hotbar, 2 sound effects
+✔ action: Shift rolls the hero forward and makes it untouchable for a moment — rolled 4.0 m, untouchable for 426 ms, cooldown 183 ms left
 ✔ action: three quick attacks chain into a finisher that knocks the skeleton back — combo 0 → 1 → 2; the finisher pushed it from 2.0 m to 3.2 m
 ✔ gear: craft a bone blade at the workbench, equip it, damage goes up — damage per hit 23 → 31
 ✔ pets: bond a Skeleton Squire; it follows, fights, gains XP and learns Taunt — pet attacked 3×, pet XP 0 → 20, Taunt learned
-✔ HDR: the scene renders through a half-float target with bloom — half-float target, render + bloom + tone-mapping passes
+✔ HDR: WebGPURenderer with the rollshade bloom pass and ACES tone mapping — webgl2 backend, half-float output, bloom {"strength":0.45,"radius":0.3,"threshold":1.5}
 ✔ skills, gear and pet survive a reload — skills {"shield_bash":1}, weapon kept, squire with 20 XP and Taunt
 ✔ no errors or CSP violations on desktop
-✔ phone: joystick moves the hero, the ✋ button gathers, a skill button casts — moved 7.8 m, gathering started, skill button cast Shadowstep
+✔ phone: joystick moves the hero, the ✋ button gathers, a skill button casts — moved 10.5 m, gathering started, skill button cast Shadowstep
 19/19 steps passed.
 ```
-The suite passed 19/19 on two runs of the final build. Earlier, for the sound and shader round, it ran four times on that build: three passed and one failed a single step that was not recorded. That gave no answer on whether that intermittent failure is gone.
+On the rollshade build the suite ran four times:
+- The first run, before the review fixes, passed 19/19.
+- The run on the review fixes failed one step, 18/19: the stun check polled for a running stun, and a 1.5 s stun can start and end between two frames at software-rendering frame rates. The check now counts stuns started instead.
+- That version then passed 19/19, the output above.
+- The arena page test passed 7/7 on the same build.
+
+"Compile" for the node materials means `compileAsync` finished and no TSL error was logged; "no errors" fails on any console error.
 
 How these were tested, and the limits:
 
@@ -122,7 +128,10 @@ How these were tested, and the limits:
   - "Compile" means three.js built a program for each one and nothing was logged as an error.
   - Every class's skills, the pets, the combo, the dodge, the HDR glow by day and night, and the character, skills and pets panels were checked in screenshots. Those screenshots were taken with the page clock slowed so short effects could be captured.
   - Motion (wind, flames, particles) can't be judged from stills at the 1–2 FPS of software rendering.
-- **HDR cost:** with software rendering, bloom roughly halves the frame rate (about 1.0 against 1.8–1.9 fps, measured with bloom toggled on and off). The cost on real GPUs is unmeasured, so bloom defaults to off on phones.
+- **Frame rate under software rendering:** about 0.8 fps after warm-up on the `WebGPURenderer` build. The old `WebGLRenderer` build ran about 1.0 fps with bloom and 1.8–1.9 fps without. Turning bloom off (0.78 fps) or bypassing rollshade's post pass entirely (0.71 fps) did not help, so the extra cost is the renderer's node-material path on SwiftShader, not the bloom. The first ~10 s after entering run at about 0.1 fps while the remaining programs compile. None of this says how it runs on a GPU.
+- **Loading:** entering the island compiles every rollshade move, loop and the enemy and hero status materials behind the loading bar. That took 85–97 s under software rendering. It is unmeasured on GPUs.
+- **Spell effects in screenshots:** a scripted pass showed a fireball setting a skeleton burning, the meteor falling and the Arcane Shield bubble. A later per-class pass captured only sky: it teleported the hero and shot within one or two frames, before the terrain there streamed in. So not every class's skills were checked in screenshots this round.
+- **rollshade's post pass** always adds a light vignette, a little chromatic aberration and a brightness knee; it has no public switch for them.
 
 Not covered by automation yet:
 
@@ -182,6 +191,10 @@ The multiplayer E2E suite was re-run after the backend refactor: 17/17. The page
 | Screenshot review (pets) | The pet nameplate kept the level it was created with | It is refreshed with the HUD |
 | E2E | Test skeletons spawned as night wanderers vanished at once in daytime | Tests tie them to a ruin |
 | E2E | After the ruin steps the hero could be dead or respawning, so later setup moved a dead hero and every action was refused | Test setup waits for the respawn and heals the hero before each staged scene |
+| Code review (rollshade) | Leap and Shadowstep played their effect at the destination: the sim moves the hero at once, and moves read their start anchor every frame | Dashes start from a fixed point where the dash began |
+| Code review (rollshade) | Heals flew to a point 2 m ahead instead of onto the hero; pet effects sat 0.25 m underground | Heals target the hero; floors come from the terrain height |
+| Code review (rollshade) | Below 20 fps effects ran slower than the sim's wall-clock damage timing (effects clamped to 0.05 s steps) | Effects use the game loop's 0.1 s clamp |
+| Code review (rollshade) | Night wanderers vanished instead of burning away; a dodge rippled the shield; statuses were prewarmed only for enemy kinds present at start | Removed enemies dissolve first; "Dodged" is not a shield hit; every kind is prewarmed |
 
 ## 4. Not verified here (needs real hardware / hosting)
 
